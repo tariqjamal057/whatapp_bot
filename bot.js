@@ -14,6 +14,9 @@ import { Low } from "lowdb";
 import { JSONFile } from "lowdb/node";
 import qrcode from "qrcode-terminal";
 import pino from "pino";
+import path from "path"
+import QRCode from 'qrcode';
+
 
 dotenv.config();
 
@@ -466,40 +469,68 @@ async function connectToWhatsApp() {
     sock.ev.on("creds.update", saveCreds);
 
     sock.ev.on(
-      "connection.update",
-      async ({ connection, lastDisconnect, qr }) => {
-        if (qr) {
-          console.log(
-            "📲 Escanea este código QR con WhatsApp (Dispositivos Vinculados):"
-          );
-          qrcode.generate(qr, { small: true });
-        }
-
-        if (connection === "open") {
-          console.log("✅ ¡Conexión de WhatsApp establecida!");
-          printShareableLink();
-        } else if (connection === "close") {
-          console.log("❌ Conexión de WhatsApp cerrada");
-
-          const shouldRestart =
-            lastDisconnect?.error?.output?.statusCode !==
-            DisconnectReason.loggedOut;
-
-          if (shouldRestart && shouldReconnect) {
-            console.log("🔄 Intentando reconectar en 5 segundos...");
-            setTimeout(() => {
-              connectToWhatsApp();
-            }, 5000);
-          } else {
-            console.log(
-              "🛑 Bot detenido. Reinicia manualmente si es necesario."
-            );
-          }
-        } else if (connection === "connecting") {
-          console.log("🔄 Conectando a WhatsApp...");
-        }
+  "connection.update",
+  async ({ connection, lastDisconnect, qr }) => {
+    if (qr) {
+      console.log("📲 Generando código QR como imagen...");
+      
+      try {
+        // Generate QR code as image file
+        const qrImagePath = path.join(process.cwd(), 'whatsapp-qr.png');
+        await QRCode.toFile(qrImagePath, qr, {
+          color: {
+            dark: '#000000',
+            light: '#FFFFFF'
+          },
+          width: 512
+        });
+        
+        console.log(`✅ Código QR generado exitosamente: ${qrImagePath}`);
+        console.log("📱 Escanea el archivo 'whatsapp-qr.png' con WhatsApp (Dispositivos Vinculados)");
+      } catch (error) {
+        console.error("❌ Error generando imagen QR:", error);
+        // Fallback to terminal QR if image generation fails
+        qrcode.generate(qr, { small: true });
       }
-    );
+    }
+
+    if (connection === "open") {
+      console.log("✅ ¡Conexión de WhatsApp establecida!");
+      
+      // Delete QR image file after successful connection
+      try {
+        const qrImagePath = path.join(process.cwd(), 'whatsapp-qr.png');
+        if (fs.existsSync(qrImagePath)) {
+          fs.unlinkSync(qrImagePath);
+          console.log("🗑️ Archivo QR eliminado después de la conexión exitosa");
+        }
+      } catch (error) {
+        console.log("⚠️ No se pudo eliminar el archivo QR:", error.message);
+      }
+      
+      printShareableLink();
+    } else if (connection === "close") {
+      console.log("❌ Conexión de WhatsApp cerrada");
+
+      const shouldRestart =
+        lastDisconnect?.error?.output?.statusCode !==
+        DisconnectReason.loggedOut;
+
+      if (shouldRestart && shouldReconnect) {
+        console.log("🔄 Intentando reconectar en 5 segundos...");
+        setTimeout(() => {
+          connectToWhatsApp();
+        }, 5000);
+      } else {
+        console.log(
+          "🛑 Bot detenido. Reinicia manualmente si es necesario."
+        );
+      }
+    } else if (connection === "connecting") {
+      console.log("🔄 Conectando a WhatsApp...");
+    }
+  }
+);
 
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       console.log("📨 Evento de mensaje recibido:", {
