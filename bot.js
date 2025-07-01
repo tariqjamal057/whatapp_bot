@@ -63,8 +63,9 @@ let qrGenerationTime = null;
 let qrRegenerationInterval = null;
 let currentQRCode = null;
 let qrExpirationTimeout = null;
+let qrGenerated = false; // Add this flag to prevent multiple generations
 const QR_VALIDITY_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-const QR_REFRESH_INTERVAL = 10 * 60 * 1000;
+const QR_REFRESH_INTERVAL = 10 * 60 * 1000; // Check every 10 minutes
 
 // Load daily rates based on current date
 function loadDailyRates() {
@@ -250,9 +251,10 @@ async function forceQRRegeneration() {
       }
     }
 
-    // Reset QR data
+    // Reset QR data and flags
     currentQRCode = null;
     qrGenerationTime = null;
+    qrGenerated = false; // Reset flag to allow new generation
 
     // Disconnect and reconnect to force new QR generation
     if (sock) {
@@ -265,11 +267,13 @@ async function forceQRRegeneration() {
     }, 3000);
   } catch (error) {
     console.error("❌ Error forzando regeneración de QR:", error);
+    qrGenerated = false; // Reset flag on error
   }
 }
 
+// Update checkQRValidityAndRefresh function
 function checkQRValidityAndRefresh() {
-  if (qrGenerationTime && currentQRCode) {
+  if (qrGenerationTime && currentQRCode && qrGenerated) {
     const now = Date.now();
     const timeSinceGeneration = now - qrGenerationTime;
     const timeUntilExpiry = QR_VALIDITY_DURATION - timeSinceGeneration;
@@ -559,8 +563,12 @@ async function connectToWhatsApp() {
     sock.ev.on(
       "connection.update",
       async ({ connection, lastDisconnect, qr }) => {
-        if (qr) {
+        if (qr && !qrGenerated) {
+          // Only generate QR if not already generated
           console.log("📲 Generando código QR válido por 24 horas...");
+
+          // Set flag to prevent multiple generations
+          qrGenerated = true;
 
           // Store the QR code and generation time
           currentQRCode = qr;
@@ -623,6 +631,7 @@ async function connectToWhatsApp() {
               console.log(
                 "⏰ QR expirado después de 24 horas, generando nuevo QR..."
               );
+              qrGenerated = false; // Reset flag to allow new generation
               forceQRRegeneration();
             }, QR_VALIDITY_DURATION);
 
@@ -641,6 +650,7 @@ async function connectToWhatsApp() {
               "❌ Error generando/subiendo QR a Cloudinary:",
               error
             );
+            qrGenerated = false; // Reset flag on error
             // Fallback to terminal QR
             try {
               qrcode.generate(qr, { small: true });
@@ -651,6 +661,10 @@ async function connectToWhatsApp() {
               );
             }
           }
+        } else if (qr && qrGenerated) {
+          console.log(
+            "⏭️ QR ya generado, ignorando nueva generación automática"
+          );
         }
 
         if (connection === "open") {
@@ -668,13 +682,17 @@ async function connectToWhatsApp() {
             qrExpirationTimeout = null;
           }
 
-          // Reset QR generation time
+          // Reset QR generation flags
           qrGenerationTime = null;
           currentQRCode = null;
+          qrGenerated = false;
 
           printShareableLink();
         } else if (connection === "close") {
           console.log("❌ Conexión de WhatsApp cerrada");
+
+          // Reset QR generation flag
+          qrGenerated = false;
 
           const shouldRestart =
             lastDisconnect?.error?.output?.statusCode !==
@@ -2320,6 +2338,11 @@ process.stdin.on("data", async (data) => {
     console.log("=======================\n");
   }
 
+  if (cmd === "regenerate-qr" || cmd === "regenerar-qr") {
+    console.log("🔄 Regenerando QR manualmente...");
+    qrGenerated = false; // Reset flag
+    forceQRRegeneration();
+  }
   if (cmd === "qr-status" || cmd === "estado-qr") {
     if (qrGenerationTime && global.currentQRUrl) {
       const now = Date.now();
