@@ -554,15 +554,15 @@ async function connectToWhatsApp() {
           ).end(qrBuffer);
         });
         
-        // Delete previous QR if exists
-        if (global.currentQRPublicId && global.currentQRPublicId !== uploadResult.public_id) {
-          try {
-            await cloudinary.uploader.destroy(global.currentQRPublicId);
-            console.log("🗑️ QR anterior eliminado de Cloudinary");
-          } catch (error) {
-            console.log("⚠️ No se pudo eliminar el QR anterior:", error.message);
-          }
-        }
+        // // Delete previous QR if exists
+        // if (global.currentQRPublicId && global.currentQRPublicId !== uploadResult.public_id) {
+        //   try {
+        //     await cloudinary.uploader.destroy(global.currentQRPublicId);
+        //     console.log("🗑️ QR anterior eliminado de Cloudinary");
+        //   } catch (error) {
+        //     console.log("⚠️ No se pudo eliminar el QR anterior:", error.message);
+        //   }
+        // }
         
         console.log(`✅ Código QR subido exitosamente a Cloudinary`);
         console.log(`🔗 URL del QR: ${uploadResult.secure_url}`);
@@ -603,17 +603,17 @@ async function connectToWhatsApp() {
       // Reset QR generation time
       qrGenerationTime = null;
       
-      // Delete QR image from Cloudinary after successful connection
-      if (global.currentQRPublicId) {
-        try {
-          await cloudinary.uploader.destroy(global.currentQRPublicId);
-          console.log("🗑️ QR eliminado de Cloudinary después de la conexión exitosa");
-          delete global.currentQRPublicId;
-          delete global.currentQRUrl;
-        } catch (error) {
-          console.log("⚠️ No se pudo eliminar el QR de Cloudinary:", error.message);
-        }
-      }
+      // // Delete QR image from Cloudinary after successful connection
+      // if (global.currentQRPublicId) {
+      //   try {
+      //     await cloudinary.uploader.destroy(global.currentQRPublicId);
+      //     console.log("🗑️ QR eliminado de Cloudinary después de la conexión exitosa");
+      //     delete global.currentQRPublicId;
+      //     delete global.currentQRUrl;
+      //   } catch (error) {
+      //     console.log("⚠️ No se pudo eliminar el QR de Cloudinary:", error.message);
+      //   }
+      // }
       
       printShareableLink();
     } else if (connection === "close") {
