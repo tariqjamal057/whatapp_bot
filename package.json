@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.18",
+    "cloudinary": "^2.7.0",
     "dotenv": "^16.3.1",
     "lowdb": "^6.0.1",
     "openai": "^4.15.0",

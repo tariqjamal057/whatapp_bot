@@ -14,11 +14,17 @@ import { Low } from "lowdb";
 import { JSONFile } from "lowdb/node";
 import qrcode from "qrcode-terminal";
 import pino from "pino";
-import path from "path"
-import QRCode from 'qrcode';
-
+import path from "path";
+import QRCode from "qrcode";
+import { v2 as cloudinary } from "cloudinary";
 
 dotenv.config();
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 const logger = pino({
   level: "silent",
@@ -469,68 +475,107 @@ async function connectToWhatsApp() {
     sock.ev.on("creds.update", saveCreds);
 
     sock.ev.on(
-  "connection.update",
-  async ({ connection, lastDisconnect, qr }) => {
-    if (qr) {
-      console.log("📲 Generando código QR como imagen...");
-      
-      try {
-        // Generate QR code as image file
-        const qrImagePath = path.join(process.cwd(), 'whatsapp-qr.png');
-        await QRCode.toFile(qrImagePath, qr, {
-          color: {
-            dark: '#000000',
-            light: '#FFFFFF'
-          },
-          width: 512
-        });
-        
-        console.log(`✅ Código QR generado exitosamente: ${qrImagePath}`);
-        console.log("📱 Escanea el archivo 'whatsapp-qr.png' con WhatsApp (Dispositivos Vinculados)");
-      } catch (error) {
-        console.error("❌ Error generando imagen QR:", error);
-        // Fallback to terminal QR if image generation fails
-        qrcode.generate(qr, { small: true });
-      }
-    }
+      "connection.update",
+      async ({ connection, lastDisconnect, qr }) => {
+        if (qr) {
+          console.log("📲 Generando código QR y subiendo a Cloudinary...");
 
-    if (connection === "open") {
-      console.log("✅ ¡Conexión de WhatsApp establecida!");
-      
-      // Delete QR image file after successful connection
-      try {
-        const qrImagePath = path.join(process.cwd(), 'whatsapp-qr.png');
-        if (fs.existsSync(qrImagePath)) {
-          fs.unlinkSync(qrImagePath);
-          console.log("🗑️ Archivo QR eliminado después de la conexión exitosa");
+          try {
+            // Generate QR code as buffer
+            const qrBuffer = await QRCode.toBuffer(qr, {
+              color: {
+                dark: "#000000",
+                light: "#FFFFFF",
+              },
+              width: 512,
+              type: "png",
+            });
+
+            // Upload to Cloudinary
+            const uploadResult = await new Promise((resolve, reject) => {
+              cloudinary.uploader
+                .upload_stream(
+                  {
+                    resource_type: "image",
+                    public_id: `whatsapp-qr-${Date.now()}`,
+                    folder: "whatsapp-qr",
+                    overwrite: true,
+                  },
+                  (error, result) => {
+                    if (error) reject(error);
+                    else resolve(result);
+                  }
+                )
+                .end(qrBuffer);
+            });
+
+            console.log(`✅ Código QR subido exitosamente a Cloudinary`);
+            console.log(`🔗 URL del QR: ${uploadResult.secure_url}`);
+            console.log(
+              "📱 Descarga y escanea el QR con WhatsApp (Dispositivos Vinculados)"
+            );
+
+            // Store the public_id for later deletion
+            global.currentQRPublicId = uploadResult.public_id;
+          } catch (error) {
+            console.error(
+              "❌ Error generando/subiendo QR a Cloudinary:",
+              error
+            );
+            // Fallback to terminal QR if Cloudinary upload fails
+            try {
+              qrcode.generate(qr, { small: true });
+            } catch (terminalError) {
+              console.error(
+                "❌ Error mostrando QR en terminal:",
+                terminalError
+              );
+            }
+          }
         }
-      } catch (error) {
-        console.log("⚠️ No se pudo eliminar el archivo QR:", error.message);
-      }
-      
-      printShareableLink();
-    } else if (connection === "close") {
-      console.log("❌ Conexión de WhatsApp cerrada");
 
-      const shouldRestart =
-        lastDisconnect?.error?.output?.statusCode !==
-        DisconnectReason.loggedOut;
+        if (connection === "open") {
+          console.log("✅ ¡Conexión de WhatsApp establecida!");
 
-      if (shouldRestart && shouldReconnect) {
-        console.log("🔄 Intentando reconectar en 5 segundos...");
-        setTimeout(() => {
-          connectToWhatsApp();
-        }, 5000);
-      } else {
-        console.log(
-          "🛑 Bot detenido. Reinicia manualmente si es necesario."
-        );
+          // Delete QR image from Cloudinary after successful connection
+          if (global.currentQRPublicId) {
+            try {
+              await cloudinary.uploader.destroy(global.currentQRPublicId);
+              console.log(
+                "🗑️ QR eliminado de Cloudinary después de la conexión exitosa"
+              );
+              delete global.currentQRPublicId;
+            } catch (error) {
+              console.log(
+                "⚠️ No se pudo eliminar el QR de Cloudinary:",
+                error.message
+              );
+            }
+          }
+
+          printShareableLink();
+        } else if (connection === "close") {
+          console.log("❌ Conexión de WhatsApp cerrada");
+
+          const shouldRestart =
+            lastDisconnect?.error?.output?.statusCode !==
+            DisconnectReason.loggedOut;
+
+          if (shouldRestart && shouldReconnect) {
+            console.log("🔄 Intentando reconectar en 5 segundos...");
+            setTimeout(() => {
+              connectToWhatsApp();
+            }, 5000);
+          } else {
+            console.log(
+              "🛑 Bot detenido. Reinicia manualmente si es necesario."
+            );
+          }
+        } else if (connection === "connecting") {
+          console.log("🔄 Conectando a WhatsApp...");
+        }
       }
-    } else if (connection === "connecting") {
-      console.log("🔄 Conectando a WhatsApp...");
-    }
-  }
-);
+    );
 
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       console.log("📨 Evento de mensaje recibido:", {
@@ -2707,6 +2752,32 @@ function detectUrgentRequest(messageText) {
   return null;
 }
 
+// Function to clean up old QR codes from Cloudinary
+async function cleanupOldQRCodes() {
+  try {
+    const result = await cloudinary.api.resources({
+      type: 'upload',
+      prefix: 'whatsapp-qr/',
+      max_results: 100
+    });
+    
+    const oneDayAgo = new Date();
+    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+    
+    for (const resource of result.resources) {
+      const createdAt = new Date(resource.created_at);
+      if (createdAt < oneDayAgo) {
+        await cloudinary.uploader.destroy(resource.public_id);
+        console.log(`🧹 QR antiguo eliminado: ${resource.public_id}`);
+      }
+    }
+  } catch (error) {
+    console.error("❌ Error limpiando QRs antiguos:", error);
+  }
+}
+
+// Run cleanup every 6 hours
+setInterval(cleanupOldQRCodes, 6 * 60 * 60 * 1000);
 // Start cleanup intervals
 setInterval(cleanOldSessions, 6 * 60 * 60 * 1000); // Every 6 hours
 setInterval(cleanOldLogs, 24 * 60 * 60 * 1000); // Every 24 hours
