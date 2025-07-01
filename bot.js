@@ -62,7 +62,7 @@ try {
 let qrGenerationTime = null;
 let qrRegenerationInterval = null;
 const QR_VALIDITY_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-const QR_REFRESH_INTERVAL = 30 * 1000; // Check every 30 seconds
+const QR_REFRESH_INTERVAL = 24 * 60 * 60 * 1000; // Check every 30 seconds
 
 // Load daily rates based on current date
 function loadDailyRates() {
@@ -229,17 +229,16 @@ function isReceiptProperlySigned(messageText) {
 async function forceQRRegeneration() {
   try {
     console.log("🔄 Forzando regeneración de QR...");
-    
+
     // Disconnect and reconnect to force new QR generation
     if (sock) {
       sock.end();
     }
-    
+
     // Wait a moment before reconnecting
     setTimeout(() => {
       connectToWhatsApp();
     }, 2000);
-    
   } catch (error) {
     console.error("❌ Error forzando regeneración de QR:", error);
   }
@@ -250,9 +249,13 @@ function checkQRValidity() {
     const now = Date.now();
     const timeSinceGeneration = now - qrGenerationTime;
     const timeUntilExpiry = QR_VALIDITY_DURATION - timeSinceGeneration;
-    
-    console.log(`⏰ QR válido por ${Math.round(timeUntilExpiry / (1000 * 60))} minutos más`);
-    
+
+    console.log(
+      `⏰ QR válido por ${Math.round(
+        timeUntilExpiry / (1000 * 60)
+      )} minutos más`
+    );
+
     // Regenerate QR 5 minutes before expiry
     if (timeUntilExpiry <= 5 * 60 * 1000) {
       console.log("🔄 QR próximo a expirar, regenerando...");
@@ -515,135 +518,153 @@ async function connectToWhatsApp() {
     sock.ev.on("creds.update", saveCreds);
 
     sock.ev.on(
-  "connection.update",
-  async ({ connection, lastDisconnect, qr }) => {
-    if (qr) {
-      console.log("📲 Generando código QR y subiendo a Cloudinary...");
-      qrGenerationTime = Date.now(); // Record QR generation time
-      
-      try {
-        // Generate QR code as buffer
-        const qrBuffer = await QRCode.toBuffer(qr, {
-          color: {
-            dark: '#000000',
-            light: '#FFFFFF'
-          },
-          width: 512,
-          type: 'png'
-        });
-        
-        // Upload to Cloudinary with timestamp
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const uploadResult = await new Promise((resolve, reject) => {
-          cloudinary.uploader.upload_stream(
-            {
-              resource_type: 'image',
-              public_id: `whatsapp-qr-${timestamp}`,
-              folder: 'whatsapp-qr',
-              overwrite: true,
-              // Add metadata for tracking
-              context: {
-                generated_at: new Date().toISOString(),
-                expires_at: new Date(Date.now() + QR_VALIDITY_DURATION).toISOString()
-              }
-            },
-            (error, result) => {
-              if (error) reject(error);
-              else resolve(result);
+      "connection.update",
+      async ({ connection, lastDisconnect, qr }) => {
+        if (qr) {
+          console.log("📲 Generando código QR y subiendo a Cloudinary...");
+          qrGenerationTime = Date.now(); // Record QR generation time
+
+          try {
+            // Generate QR code as buffer
+            const qrBuffer = await QRCode.toBuffer(qr, {
+              color: {
+                dark: "#000000",
+                light: "#FFFFFF",
+              },
+              width: 512,
+              type: "png",
+            });
+
+            // Upload to Cloudinary with timestamp
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+            const uploadResult = await new Promise((resolve, reject) => {
+              cloudinary.uploader
+                .upload_stream(
+                  {
+                    resource_type: "image",
+                    public_id: `whatsapp-qr-${timestamp}`,
+                    folder: "whatsapp-qr",
+                    overwrite: true,
+                    // Add metadata for tracking
+                    context: {
+                      generated_at: new Date().toISOString(),
+                      expires_at: new Date(
+                        Date.now() + QR_VALIDITY_DURATION
+                      ).toISOString(),
+                    },
+                  },
+                  (error, result) => {
+                    if (error) reject(error);
+                    else resolve(result);
+                  }
+                )
+                .end(qrBuffer);
+            });
+
+            // // Delete previous QR if exists
+            // if (global.currentQRPublicId && global.currentQRPublicId !== uploadResult.public_id) {
+            //   try {
+            //     await cloudinary.uploader.destroy(global.currentQRPublicId);
+            //     console.log("🗑️ QR anterior eliminado de Cloudinary");
+            //   } catch (error) {
+            //     console.log("⚠️ No se pudo eliminar el QR anterior:", error.message);
+            //   }
+            // }
+
+            console.log(`✅ Código QR subido exitosamente a Cloudinary`);
+            console.log(`🔗 URL del QR: ${uploadResult.secure_url}`);
+            console.log(
+              `⏰ QR válido hasta: ${new Date(
+                Date.now() + QR_VALIDITY_DURATION
+              ).toLocaleString()}`
+            );
+            console.log(
+              "📱 Comparte esta URL con tus clientes - válida por 24 horas"
+            );
+
+            // Store the public_id for later deletion
+            global.currentQRPublicId = uploadResult.public_id;
+            global.currentQRUrl = uploadResult.secure_url;
+
+            // Start QR validity checking if not already running
+            if (!qrRegenerationInterval) {
+              qrRegenerationInterval = setInterval(
+                checkQRValidity,
+                QR_REFRESH_INTERVAL
+              );
+              console.log("⏰ Sistema de renovación automática de QR iniciado");
             }
-          ).end(qrBuffer);
-        });
-        
-        // // Delete previous QR if exists
-        // if (global.currentQRPublicId && global.currentQRPublicId !== uploadResult.public_id) {
-        //   try {
-        //     await cloudinary.uploader.destroy(global.currentQRPublicId);
-        //     console.log("🗑️ QR anterior eliminado de Cloudinary");
-        //   } catch (error) {
-        //     console.log("⚠️ No se pudo eliminar el QR anterior:", error.message);
-        //   }
-        // }
-        
-        console.log(`✅ Código QR subido exitosamente a Cloudinary`);
-        console.log(`🔗 URL del QR: ${uploadResult.secure_url}`);
-        console.log(`⏰ QR válido hasta: ${new Date(Date.now() + QR_VALIDITY_DURATION).toLocaleString()}`);
-        console.log("📱 Comparte esta URL con tus clientes - válida por 24 horas");
-        
-        // Store the public_id for later deletion
-        global.currentQRPublicId = uploadResult.public_id;
-        global.currentQRUrl = uploadResult.secure_url;
-        
-        // Start QR validity checking if not already running
-        if (!qrRegenerationInterval) {
-          qrRegenerationInterval = setInterval(checkQRValidity, QR_REFRESH_INTERVAL);
-          console.log("⏰ Sistema de renovación automática de QR iniciado");
+          } catch (error) {
+            console.error(
+              "❌ Error generando/subiendo QR a Cloudinary:",
+              error
+            );
+            // Fallback to terminal QR if Cloudinary upload fails
+            try {
+              qrcode.generate(qr, { small: true });
+            } catch (terminalError) {
+              console.error(
+                "❌ Error mostrando QR en terminal:",
+                terminalError
+              );
+            }
+          }
         }
-        
-      } catch (error) {
-        console.error("❌ Error generando/subiendo QR a Cloudinary:", error);
-        // Fallback to terminal QR if Cloudinary upload fails
-        try {
-          qrcode.generate(qr, { small: true });
-        } catch (terminalError) {
-          console.error("❌ Error mostrando QR en terminal:", terminalError);
-        }
-      }
-    }
 
-    if (connection === "open") {
-      console.log("✅ ¡Conexión de WhatsApp establecida!");
-      
-      // Clear QR regeneration interval
-      if (qrRegenerationInterval) {
-        clearInterval(qrRegenerationInterval);
-        qrRegenerationInterval = null;
-        console.log("⏰ Sistema de renovación automática de QR detenido");
-      }
-      
-      // Reset QR generation time
-      qrGenerationTime = null;
-      
-      // // Delete QR image from Cloudinary after successful connection
-      // if (global.currentQRPublicId) {
-      //   try {
-      //     await cloudinary.uploader.destroy(global.currentQRPublicId);
-      //     console.log("🗑️ QR eliminado de Cloudinary después de la conexión exitosa");
-      //     delete global.currentQRPublicId;
-      //     delete global.currentQRUrl;
-      //   } catch (error) {
-      //     console.log("⚠️ No se pudo eliminar el QR de Cloudinary:", error.message);
-      //   }
-      // }
-      
-      printShareableLink();
-    } else if (connection === "close") {
-      console.log("❌ Conexión de WhatsApp cerrada");
+        if (connection === "open") {
+          console.log("✅ ¡Conexión de WhatsApp establecida!");
 
-      const shouldRestart =
-        lastDisconnect?.error?.output?.statusCode !==
-        DisconnectReason.loggedOut;
+          // Clear QR regeneration interval
+          if (qrRegenerationInterval) {
+            clearInterval(qrRegenerationInterval);
+            qrRegenerationInterval = null;
+            console.log("⏰ Sistema de renovación automática de QR detenido");
+          }
 
-      if (shouldRestart && shouldReconnect) {
-        console.log("🔄 Intentando reconectar en 5 segundos...");
-        setTimeout(() => {
-          connectToWhatsApp();
-        }, 5000);
-      } else {
-        console.log(
-          "🛑 Bot detenido. Reinicia manualmente si es necesario."
-        );
-        
-        // Clear QR regeneration interval
-        if (qrRegenerationInterval) {
-          clearInterval(qrRegenerationInterval);
-          qrRegenerationInterval = null;
+          // Reset QR generation time
+          qrGenerationTime = null;
+
+          // // Delete QR image from Cloudinary after successful connection
+          // if (global.currentQRPublicId) {
+          //   try {
+          //     await cloudinary.uploader.destroy(global.currentQRPublicId);
+          //     console.log("🗑️ QR eliminado de Cloudinary después de la conexión exitosa");
+          //     delete global.currentQRPublicId;
+          //     delete global.currentQRUrl;
+          //   } catch (error) {
+          //     console.log("⚠️ No se pudo eliminar el QR de Cloudinary:", error.message);
+          //   }
+          // }
+
+          printShareableLink();
+        } else if (connection === "close") {
+          console.log("❌ Conexión de WhatsApp cerrada");
+
+          const shouldRestart =
+            lastDisconnect?.error?.output?.statusCode !==
+            DisconnectReason.loggedOut;
+
+          if (shouldRestart && shouldReconnect) {
+            console.log("🔄 Intentando reconectar en 5 segundos...");
+            setTimeout(() => {
+              connectToWhatsApp();
+            }, 5000);
+          } else {
+            console.log(
+              "🛑 Bot detenido. Reinicia manualmente si es necesario."
+            );
+
+            // Clear QR regeneration interval
+            if (qrRegenerationInterval) {
+              clearInterval(qrRegenerationInterval);
+              qrRegenerationInterval = null;
+            }
+          }
+        } else if (connection === "connecting") {
+          console.log("🔄 Conectando a WhatsApp...");
         }
       }
-    } else if (connection === "connecting") {
-      console.log("🔄 Conectando a WhatsApp...");
-    }
-  }
-);
+    );
 
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       console.log("📨 Evento de mensaje recibido:", {
@@ -2247,16 +2268,16 @@ process.stdin.on("data", async (data) => {
     }
   } else if (cmd === "help" || cmd === "ayuda") {
     console.log("\n🤖 COMANDOS DISPONIBLES");
-  console.log("=======================");
-  console.log("rate/tasa - Enviar tasa a todos los usuarios");
-  console.log("stats/estadisticas - Mostrar estadísticas");
-  console.log("sessions/sesiones - Mostrar sesiones activas");
-  console.log("reset/reiniciar - Reiniciar todas las sesiones");
-  console.log("reload-rates/recargar-tasas - Recargar tasas del día");
-  console.log("qr-status/estado-qr - Ver estado del QR actual");
-  console.log("regenerate-qr/regenerar-qr - Forzar regeneración de QR");
-  console.log("help/ayuda - Mostrar esta ayuda");
-  console.log("=======================\n");
+    console.log("=======================");
+    console.log("rate/tasa - Enviar tasa a todos los usuarios");
+    console.log("stats/estadisticas - Mostrar estadísticas");
+    console.log("sessions/sesiones - Mostrar sesiones activas");
+    console.log("reset/reiniciar - Reiniciar todas las sesiones");
+    console.log("reload-rates/recargar-tasas - Recargar tasas del día");
+    console.log("qr-status/estado-qr - Ver estado del QR actual");
+    console.log("regenerate-qr/regenerar-qr - Forzar regeneración de QR");
+    console.log("help/ayuda - Mostrar esta ayuda");
+    console.log("=======================\n");
   }
 
   if (cmd === "qr-status" || cmd === "estado-qr") {
@@ -2265,13 +2286,17 @@ process.stdin.on("data", async (data) => {
       const timeSinceGeneration = now - qrGenerationTime;
       const timeUntilExpiry = QR_VALIDITY_DURATION - timeSinceGeneration;
       const minutesLeft = Math.round(timeUntilExpiry / (1000 * 60));
-      
+
       console.log("\n📱 ESTADO DEL QR");
       console.log("================");
       console.log(`🔗 URL: ${global.currentQRUrl}`);
-      console.log(`⏰ Generado: ${new Date(qrGenerationTime).toLocaleString()}`);
+      console.log(
+        `⏰ Generado: ${new Date(qrGenerationTime).toLocaleString()}`
+      );
       console.log(`⏳ Tiempo restante: ${minutesLeft} minutos`);
-      console.log(`📊 Estado: ${minutesLeft > 0 ? '✅ Válido' : '❌ Expirado'}`);
+      console.log(
+        `📊 Estado: ${minutesLeft > 0 ? "✅ Válido" : "❌ Expirado"}`
+      );
       console.log("================\n");
     } else {
       console.log("❌ No hay QR activo en este momento");
@@ -2848,14 +2873,14 @@ function detectUrgentRequest(messageText) {
 async function cleanupOldQRCodes() {
   try {
     const result = await cloudinary.api.resources({
-      type: 'upload',
-      prefix: 'whatsapp-qr/',
-      max_results: 100
+      type: "upload",
+      prefix: "whatsapp-qr/",
+      max_results: 100,
     });
-    
+
     const oneDayAgo = new Date();
     oneDayAgo.setDate(oneDayAgo.getDate() - 1);
-    
+
     for (const resource of result.resources) {
       const createdAt = new Date(resource.created_at);
       if (createdAt < oneDayAgo) {
