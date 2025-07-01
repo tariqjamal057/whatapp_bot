@@ -1,0 +1,16 @@
+{
+  "SESSION_STATES": {
+    "INITIAL": "initial",
+    "SEND_MONEY_STARTED": "send_money_started",
+    "AWAITING_COUNTRY": "awaiting_country",
+    "AWAITING_AMOUNT": "awaiting_amount",
+    "AWAITING_ACCOUNT_CONFIRMATION": "awaiting_account_confirmation",
+    "AWAITING_TRANSFER_TYPE": "awaiting_transfer_type",
+    "AWAITING_BENEFICIARY_INFO": "awaiting_beneficiary_info",
+    "AWAITING_RECEIPT": "awaiting_receipt",
+    "KYC_REQUIRED": "kyc_required",
+    "CASH_DELIVERY": "cash_delivery",
+    "AWAITING_RECEIPT": "awaiting_receipt",
+    "AWAITING_RECEIPT_CONFIRMATION": "awaiting_receipt_confirmation"
+  }
+}

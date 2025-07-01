@@ -1,0 +1,41 @@
+{
+  "greeting": "¡Hola! 👋 Bienvenido a Tecno Inversiones RB, tu casa de remesas 💸\n\nCon nosotros puedes enviar dinero a Venezuela desde República Dominicana, Chile, Perú, Ecuador y Colombia. ✨ También enviamos dinero entre estos países (ejemplo: de Colombia a Chile).\n\n¿Deseas enviar dinero, preguntar cómo funciona el proceso o necesitas ayuda con algo específico?",
+
+  "send_money": "¡Perfecto! 🙌 Para comenzar, dime desde qué país estás enviando y el monto aproximado. Te diré la tasa actual y el procedimiento correspondiente.",
+
+  "account_ownership": "¿La transferencia será realizada desde una cuenta a tu nombre? ✅ Debes ser el titular de la cuenta.\n\nPor protocolos de seguridad, no aceptamos pagos de terceros. Esto es para protegerte y asegurar que nadie esté transfiriendo dinero sin tu consentimiento.\n\nGracias por entender 🙏",
+
+  "transfer_instructions": "Recuerda: En el concepto de la transferencia debes escribir:\n📌 ENTREGAR: NOMBRE Y APELLIDO del destinatario + los últimos 5 dígitos del teléfono desde el cual nos contactas.\n\nEjemplo: ENTREGAR a María Pérez 55553",
+
+  "deposit_confirmation": "Una vez que hagas la transferencia, por favor envíame una imagen del comprobante 📸 y la siguiente información del beneficiario:\n\n📌 Nombre y Apellido:\n📌 Cédula:\n📌 Número de Cuenta:\n📌 Monto a Entregar:",
+
+  "kyc_request": "Veo que tu transferencia supera los $300. 🔐 Por razones de seguridad, debemos verificar que eres el titular de la cuenta. Esto se hace solo una vez, y luego podrás enviar montos grandes sin problemas, siempre que uses la misma cuenta.\n\nPor favor verifica en este enlace:\n🔗 https://signup.metamap.com/?merchantToken=68221bbbcdc3bb0c6a37635a&flowId=68221bbb70559e84e01b01a1",
+
+  "receipt_unsigned": "Gracias por tu comprobante. 🙌 Solo necesito que lo firmes con tu nombre y los últimos cuatro dígitos del teléfono desde el cual nos escribes. Esto asegura mayor seguridad y evita retrasos en el proceso. 📌",
+
+  "business_hours": "Nuestros horarios de atención son:\n🕘 Lunes a Viernes: 9:00 a.m. - 5:00 p.m. – 7:00 p.m.\n🕑 Sábados: 9:00 a.m. – 2:00 p.m.\n⏰ Hora de almuerzo: 12:30 p.m. – 1:30 p.m.\n\nSi nos escribes fuera de estos horarios, tu mensaje será respondido el próximo día hábil.\n\n📌 Nuestro sistema no permite llamadas, solo atención por WhatsApp.\n📌 La atención se brinda por orden de llegada. Enviar múltiples mensajes puede retrasar tu turno.",
+
+  "promo": "🎁 Actualmente no hay sorteos activos, pero pronto lanzaremos nuevas promociones.",
+
+  "human": "🙌 Te conectaremos con un asesor humano. Un momento por favor…",
+
+  "daily_rate": "📈 Consulta la tasa del día:\n🇩🇴 Dominicana 👉 https://acortar.link/cxa2wx\n🌎 Otros países 👉 https://acortar.link/CsMp4R",
+
+  "points": "¡Tus puntos acumulados estarán disponibles pronto aquí!",
+
+  "no_calls": "📵 No atendemos llamadas. Toda la atención es por WhatsApp. Estoy aquí para ayudarte.",
+
+  "invalid_method": "⚠️ Importante: No aceptamos pagos por T-Pay o *960.\n\nEstos métodos no nos permiten verificar adecuadamente la transferencia.\n\nPor favor usa una transferencia bancaria directa o depósito en efectivo. 🙏",
+
+  "impatient": "Entiendo que esto es importante para ti, y estamos aquí para ayudarte 🕊️\n\nPara atenderte lo más rápido posible, por favor asegúrate de completar todos los pasos correctamente.\n\nTe recuerdo que la atención se brinda por orden de llegada. Gracias por tu paciencia 🙏",
+
+  "incomplete_data": "📝 Parece que falta información importante 🧐\n\nPor favor asegúrate de enviar toda la información del beneficiario en este formato:\n\n📌 Nombre y Apellido:\n📌 Cédula:\n📌 Número de Cuenta:\n📌 Monto a Entregar:\n\n¿Te gustaría que te muestre un ejemplo para guiarte? 😊",
+
+  "process_help": "¡No te preocupes, estoy aquí para ayudarte! 🙋‍♂️\n\nTe explico paso a paso cómo hacer tu transferencia.\n\nSolo dime si vas a hacer una **transferencia** o un **depósito**, y te daré las instrucciones exactas para que todo salga bien. ✅",
+
+  "cash_delivery": "✅ Perfecto, puedes enviar dólares en efectivo a Venezuela. 🔒 Ten en cuenta que este tipo de entrega tiene una comisión del 10% para cubrir la logística de entrega física en destino.",
+
+  "fallback": "Disculpa, no pude entender tu mensaje. ¿Podrías ser más específico sobre el envío de dinero, tasas o procesos? Estoy aquí para ayudarte.",
+  "fallback_prefix": "Eres un asistente de atención al cliente de Tecno Inversiones RB, una empresa de remesas. Responde en español de manera amigable y profesional. El cliente escribió: ",
+  "fallback_suffix": "\n\nMantén la respuesta corta (máximo 2 líneas) y siempre ofrece ayuda adicional. Si no entiendes la consulta, pide que sea más específico sobre envío de dinero, tasas o procesos."
+}

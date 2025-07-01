@@ -1,0 +1,19 @@
+{
+  "countries": {
+    "republica dominicana": "dominican",
+    "dominicana": "dominican",
+    "rd": "dominican",
+    "peru": "peru",
+    "perú": "peru",
+    "ecuador": "ecuador",
+    "colombia": "colombia",
+    "chile": "chile"
+  },
+  "displayNames": {
+    "dominican": "República Dominicana",
+    "peru": "Perú",
+    "ecuador": "Ecuador",
+    "colombia": "Colombia",
+    "chile": "Chile"
+  }
+}
