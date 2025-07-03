@@ -7,10 +7,17 @@
     "AWAITING_ACCOUNT_CONFIRMATION": "awaiting_account_confirmation",
     "AWAITING_TRANSFER_TYPE": "awaiting_transfer_type",
     "AWAITING_BENEFICIARY_INFO": "awaiting_beneficiary_info",
-    "AWAITING_RECEIPT": "awaiting_receipt",
     "KYC_REQUIRED": "kyc_required",
     "CASH_DELIVERY": "cash_delivery",
     "AWAITING_RECEIPT": "awaiting_receipt",
-    "AWAITING_RECEIPT_CONFIRMATION": "awaiting_receipt_confirmation"
+    "AWAITING_RECEIPT_CONFIRMATION": "awaiting_receipt_confirmation",
+    "PHYSICAL_DELIVERY_STARTED": "physical_delivery_started",
+    "AWAITING_DELIVERY_ADDRESS": "awaiting_delivery_address",
+    "AWAITING_DELIVERY_CONFIRMATION": "awaiting_delivery_confirmation",
+    "DELIVERY_SCHEDULED": "delivery_scheduled",
+    "DELIVERY_IN_PROGRESS": "delivery_in_progress",
+    "DELIVERY_COMPLETED": "delivery_completed",
+    "HUMAN_ASSISTANCE": "human_assistance",        
+    "WAITING_FOR_RESOLUTION": "waiting_for_resolution"
   }
 }

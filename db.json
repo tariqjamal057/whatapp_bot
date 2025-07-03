@@ -1,5 +1,7 @@
 {
   "users": {},
   "logs": [],
-  "userSessions": {}
+  "userSessions": {},
+  "agents": [],
+  "humanAssistanceQueue": []
 }

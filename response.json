@@ -1,11 +1,13 @@
 {
-  "greeting": "¡Hola! 👋 Bienvenido a Tecno Inversiones RB, tu casa de remesas 💸\n\nCon nosotros puedes enviar dinero a Venezuela desde República Dominicana, Chile, Perú, Ecuador y Colombia. ✨ También enviamos dinero entre estos países (ejemplo: de Colombia a Chile).\n\n¿Deseas enviar dinero, preguntar cómo funciona el proceso o necesitas ayuda con algo específico?",
+  "greeting": "¡Hola! 👋 Bienvenido a Tecno Inversiones.\n\n¿En qué puedo ayudarte hoy?\n\n💰 Envío de dinero\n📊 Consultar tasas de cambio\n🕐 Horarios de atención\n💬 Hablar con un asesor\n\nEscribe lo que necesites o selecciona una opción.",
 
   "send_money": "¡Perfecto! 🙌 Para comenzar, dime desde qué país estás enviando y el monto aproximado. Te diré la tasa actual y el procedimiento correspondiente.",
 
   "account_ownership": "¿La transferencia será realizada desde una cuenta a tu nombre? ✅ Debes ser el titular de la cuenta.\n\nPor protocolos de seguridad, no aceptamos pagos de terceros. Esto es para protegerte y asegurar que nadie esté transfiriendo dinero sin tu consentimiento.\n\nGracias por entender 🙏",
 
-  "transfer_instructions": "Recuerda: En el concepto de la transferencia debes escribir:\n📌 ENTREGAR: NOMBRE Y APELLIDO del destinatario + los últimos 5 dígitos del teléfono desde el cual nos contactas.\n\nEjemplo: ENTREGAR a María Pérez 55553",
+  "account_confirmed": "¡Perfecto! 🙌 Confirmado que eres el titular de la cuenta.\n\n📝 Ahora, ¿cómo prefieres realizar el pago?\n\n1️⃣ **Transferencia bancaria** (Bolívares)\n2️⃣ **Depósito en efectivo** (Bolívares)\n3️⃣ **Entrega física** (Dólares USD - Comisión 10%)\n\nResponde con el número de tu opción preferida.",
+
+  "transfer_instructions": "📝 **Instrucciones para Transferencia Bancaria:**\n\n**Paso 1** - Solicita las cuentas bancarias actualizadas aquí.\n\n**Paso 2** - En el concepto de la transferencia, escribe:\n📌 ENTREGAR: Nombre y apellido del destinatario + los últimos 5 dígitos de tu WhatsApp.\n\n**Paso 3** - Después de transferir, envíame:\n1️⃣ Una foto del comprobante\n2️⃣ La información del beneficiario",
 
   "deposit_confirmation": "Una vez que hagas la transferencia, por favor envíame una imagen del comprobante 📸 y la siguiente información del beneficiario:\n\n📌 Nombre y Apellido:\n📌 Cédula:\n📌 Número de Cuenta:\n📌 Monto a Entregar:",
 
@@ -22,6 +24,14 @@
   "daily_rate": "📈 Consulta la tasa del día:\n🇩🇴 Dominicana 👉 https://acortar.link/cxa2wx\n🌎 Otros países 👉 https://acortar.link/CsMp4R",
 
   "points": "¡Tus puntos acumulados estarán disponibles pronto aquí!",
+
+  "physical_delivery_info": "💵 **Entrega de Dólares Físicos en Venezuela**\n\n✅ Disponible desde cualquier país\n🔒 Comisión fija: 10% del monto\n⏱️ Tiempo: 24-48 horas\n🚚 Entrega segura a domicilio\n\n¿Desde qué país y por cuánto deseas enviar?",
+  
+  "physical_delivery_benefits": "🔒 **Ventajas de Entrega Física:**\n\n💵 Dólares reales en mano\n🚚 Entrega a domicilio segura\n📍 Sin necesidad de cuenta bancaria\n⚡ Proceso rápido y directo\n🛡️ Transporte asegurado\n\n¿Te interesa este servicio?",
+  
+  "physical_vs_bank": "💰 **Opciones de Entrega:**\n\n1️⃣ **Transferencia Bancaria (Bolívares)**\n   📈 Tasa del día aplicable\n   ⚡ Entrega inmediata\n   🏦 Directo a cuenta bancaria\n\n2️⃣ **Entrega Física (Dólares USD)**\n   🔒 Comisión fija 10%\n   💵 Dólares físicos en mano\n   🚚 24-48 horas de entrega\n\n¿Cuál prefieres?",
+  
+  "cash_delivery_fee_explanation": "💸 **¿Por qué cobramos 10% en entregas físicas?**\n\n🚚 Logística de transporte seguro\n🛡️ Seguro de mercancía\n👥 Personal especializado\n📍 Entrega a domicilio\n⏱️ Disponibilidad 24/7\n\nEste fee garantiza un servicio seguro y confiable.",
 
   "no_calls": "📵 No atendemos llamadas. Toda la atención es por WhatsApp. Estoy aquí para ayudarte.",
 
