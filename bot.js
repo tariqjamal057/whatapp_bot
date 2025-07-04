@@ -158,11 +158,7 @@ const countries = countriesData.countries;
 const countryDisplayNames = countriesData.displayNames;
 const SESSION_STATES = sessionStatesData.SESSION_STATES;
 
-// ==================== NEW AI-POWERED FUNCTIONS ====================
 
-// OpenAI Intent Detection - Core AI Function
-// Update the detectIntentWithOpenAI function to better handle delivery types
-// Inside MultipleFiles/bot.js
 
 async function detectIntentWithOpenAI(messageText, userSession) {
   try {
@@ -176,21 +172,23 @@ ANALYZE the user's message and respond with a JSON object containing:
     "amount": number_or_null,
     "currency": "USD|DOP|PEN|COP|CLP|unknown",
     "country": "dominican|peru|ecuador|colombia|chile|unknown",
-    "delivery_type": "bank_transfer|physical_delivery|cash_delivery|unknown"
+    "transfer_type": "bank_transfer|cash_deposit|physical_delivery|unknown"
   },
   "context": "brief_context_summary",
   "requires_human": boolean,
   "user_emotion": "neutral|frustrated|urgent|confused",
-  "delivery_preference": {
-    "wants_physical_dollars": boolean,
-    "wants_bank_transfer": boolean,
-    "delivery_keywords": ["matched_keywords"]
+  "auto_transfer_type": {
+    "detected": boolean,
+    "type": "bank_transfer|cash_deposit|physical_delivery",
+    "keywords": ["matched_keywords"],
+    "confidence": 0.0-1.0
   }
 }
 
 INTENTS:
-- send_money: wants to transfer money (implies bank transfer unless specified)
+- send_money: wants to transfer money (default: bank_transfer unless specified)
 - physical_delivery: wants physical dollar delivery in Venezuela
+- cash_deposit: wants to deposit cash for transfer
 - check_rate: wants exchange rates
 - human_agent: wants human help
 - greeting: hello/hi messages
@@ -198,27 +196,23 @@ INTENTS:
 - account_confirmation: confirming account ownership
 - beneficiary_info: providing recipient details
 - receipt_submission: sending payment proof
-- cash_delivery: wants cash delivery service (synonym for physical_delivery)
-- kyc_verification: identity verification
-- business_hours: asking about hours
-- promo_inquiry: asking about promotions
-- delivery_comparison: comparing delivery options
 
-PHYSICAL DELIVERY DETECTION:
-Keywords: "cash", "efectivo", "physical dollars", "dólares físicos", "delivery in $", "entrega en $", "dollars in hand", "dólares en mano", "cash delivery", "entrega en efectivo", "physical", "físico", "en persona", "deliver cash", "entregar efectivo", "dollars at home", "dólares a domicilio"
+AUTOMATIC TRANSFER TYPE DETECTION:
+1. PHYSICAL DELIVERY keywords: "cash", "efectivo", "physical dollars", "dólares físicos", "delivery", "entrega física", "physical", "físico", "en persona", "cash delivery", "entregar efectivo", "dollars at home", "dólares a domicilio", "en mano", "dollars in hand"
 
-BANK TRANSFER DETECTION:
-Keywords: "transferencia", "bank transfer", "cuenta bancaria", "bank account", "bolívares", "bolivares", "bs", "tasa", "rate", "enviar dinero", "mandar dinero", "transferir"
+2. CASH DEPOSIT keywords: "depósito", "deposit", "depositar", "efectivo", "cash deposit", "deposito en efectivo", "depositar efectivo"
+
+3. BANK TRANSFER keywords (default): "transferencia", "bank transfer", "transferir", "enviar dinero", "mandar dinero", "send money", "transfer money", "online transfer"
+
+DEFAULT BEHAVIOR:
+- If no specific keywords detected, assume "bank_transfer"
+- Physical delivery has highest priority if detected
+- Cash deposit has medium priority
+- Bank transfer is default/fallback
 
 CURRENT SESSION:
 State: ${userSession.state}
 Data: ${JSON.stringify(userSession.data || {})}
-
-CURRENCY DETECTION RULES:
-- "$100" or "100 dollars" = USD
-- "RD$100" or "100 pesos" = Dominican Pesos (DOP)
-- "100 soles" = Peruvian Soles (PEN)
-- Numbers without currency context = ask for clarification
 
 USER MESSAGE: "${messageText}"`;
 
@@ -248,14 +242,16 @@ USER MESSAGE: "${messageText}"`;
       context: "error_occurred",
       requires_human: false,
       user_emotion: "neutral",
-      delivery_preference: {
-        wants_physical_dollars: false,
-        wants_bank_transfer: false,
-        delivery_keywords: [],
-      },
+      auto_transfer_type: {
+        detected: false,
+        type: "bank_transfer",
+        keywords: [],
+        confidence: 0.0
+      }
     };
   }
 }
+
 
 
 // Generate Contextual AI Response
@@ -1238,6 +1234,8 @@ function getUsersWaitingForHuman() {
 
 // Inside MultipleFiles/bot.js
 
+// Inside MultipleFiles/bot.js
+
 async function handlePhysicalDeliveryRequest(
   messageText,
   userSession,
@@ -1382,6 +1380,7 @@ async function handlePhysicalDeliveryRequest(
 }
 
 
+
 function isAgentMessage(sender) {
   const rawNumber = process.env.WHATSAPP_NUMBER || "";
   const cleanedNumber = rawNumber.replace(/\D/g, ""); // Removes +, spaces, dashes
@@ -1389,6 +1388,8 @@ function isAgentMessage(sender) {
 
   return sender === agentJID;
 }
+
+// Inside MultipleFiles/bot.js
 
 // Inside MultipleFiles/bot.js
 
@@ -1473,6 +1474,7 @@ USER RESPONSE: "${messageText}"`;
     };
   }
 }
+
 
 
 
@@ -1566,145 +1568,8 @@ async function handleUserMessage(sender, messageText) {
       userSession.data.loopCount = 0;
     }
 
-    // --- CRITICAL REORDERING STARTS HERE ---
-
-    // 1. Handle AWAITING_ACCOUNT_CONFIRMATION state
-    if (userSession.state === SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION) {
-      const confirmationResponse = await handleAIAccountConfirmation(
-        messageText,
-        userSession
-      );
-      if (confirmationResponse) {
-        await sock.sendMessage(sender, { text: confirmationResponse.message });
-        if (confirmationResponse.newState) {
-          userSession.state = confirmationResponse.newState;
-          userSession.data.loopCount = 0;
-        }
-        await db.write();
-        return; // IMPORTANT: Stop processing if state-specific handler takes action
-      }
-    }
-
-    // 2. Handle AWAITING_BENEFICIARY_INFO state
-    if (userSession.state === SESSION_STATES.AWAITING_BENEFICIARY_INFO) {
-      const beneficiaryResponse = await handleAIBeneficiaryInfo(messageText, userSession);
-      if (beneficiaryResponse) {
-        await sock.sendMessage(sender, { text: beneficiaryResponse.message });
-        if (beneficiaryResponse.newState) {
-          userSession.state = beneficiaryResponse.newState;
-          userSession.data.loopCount = 0;
-        }
-        if (beneficiaryResponse.sessionData) {
-          userSession.data = { ...userSession.data, ...beneficiaryResponse.sessionData };
-        }
-        // If human transfer is requested by beneficiary info handler
-        if (beneficiaryResponse.requiresHumanTransfer) {
-          await transferToHumanAssistance(sender, userSession, {
-            needsHuman: true,
-            confidence: 0.9,
-            reason: beneficiaryResponse.intent,
-            urgency: "medium",
-            category: "complex_query",
-            context: "Beneficiary info extraction failed or was unclear"
-          }, messageText);
-        }
-        await db.write();
-        return; // IMPORTANT: Stop processing if state-specific handler takes action
-      }
-    }
-
-    // 3. Handle AWAITING_TRANSFER_TYPE state
-    if (userSession.state === SESSION_STATES.AWAITING_TRANSFER_TYPE) {
-      const transferTypeResponse = handleTransferTypeOriginal(messageText, userSession);
-      if (transferTypeResponse) {
-        await sock.sendMessage(sender, { text: transferTypeResponse.message });
-        if (transferTypeResponse.newState) {
-          userSession.state = transferTypeResponse.newState;
-          userSession.data.loopCount = 0;
-        }
-        if (transferTypeResponse.sessionData) {
-          userSession.data = { ...userSession.data, ...transferTypeResponse.sessionData };
-        }
-        await db.write();
-        return; // IMPORTANT: Stop processing if state-specific handler takes action
-      }
-    }
-
-    // 4. Handle AWAITING_COUNTRY state
-    if (userSession.state === SESSION_STATES.AWAITING_COUNTRY) {
-      const countryResponse = handleCountryInputOriginal(messageText, userSession);
-      if (countryResponse) {
-        await sock.sendMessage(sender, { text: countryResponse.message });
-        if (countryResponse.newState) {
-          userSession.state = countryResponse.newState;
-          userSession.data.loopCount = 0;
-        }
-        if (countryResponse.sessionData) {
-          userSession.data = { ...userSession.data, ...countryResponse.sessionData };
-        }
-        await db.write();
-        return; // IMPORTANT: Stop processing if state-specific handler takes action
-      }
-    }
-
-    // 5. Handle AWAITING_AMOUNT state
-    if (userSession.state === SESSION_STATES.AWAITING_AMOUNT) {
-      const amountResponse = handleAmountInputOriginal(messageText, userSession);
-      if (amountResponse) {
-        await sock.sendMessage(sender, { text: amountResponse.message });
-        if (amountResponse.newState) {
-          userSession.state = amountResponse.newState;
-          userSession.data.loopCount = 0;
-        }
-        if (amountResponse.sessionData) {
-          userSession.data = { ...userSession.data, ...amountResponse.sessionData };
-        }
-        await db.write();
-        return; // IMPORTANT: Stop processing if state-specific handler takes action
-      }
-    }
-
-    // 6. Handle KYC_REQUIRED state
-    if (userSession.state === SESSION_STATES.KYC_REQUIRED) {
-      const kycResponse = handleKYCRequiredOriginal(messageText, userSession);
-      if (kycResponse) {
-        await sock.sendMessage(sender, { text: kycResponse.message });
-        if (kycResponse.newState) {
-          userSession.state = kycResponse.newState;
-          userSession.data.loopCount = 0;
-        }
-        if (kycResponse.sessionData) {
-          userSession.data = { ...userSession.data, ...kycResponse.sessionData };
-        }
-        await db.write();
-        return; // IMPORTANT: Stop processing if state-specific handler takes action
-      }
-    }
-
-    // --- General Intent Detection (only if no specific state handler took action) ---
-
-    // ENHANCED: Try direct pattern matching first for common scenarios (existing logic)
-    const directResponse = await handleDirectPatterns(messageText, userSession);
-    if (directResponse) {
-      await sock.sendMessage(sender, { text: directResponse.message });
-
-      if (directResponse.newState) {
-        userSession.state = directResponse.newState;
-        userSession.data.loopCount = 0; // Reset loop count on state change
-      }
-      if (directResponse.sessionData) {
-        userSession.data = {
-          ...userSession.data,
-          ...directResponse.sessionData,
-        };
-      }
-
-      await db.write();
-      return;
-    }
-
-    // Use OpenAI for intent detection (existing logic)
-    console.log("🤖 Enviando mensaje a OpenAI para análisis...");
+    // --- AI-FIRST INTENT DETECTION ---
+    console.log("🤖 Enviando mensaje a OpenAI para análisis de INTENT...");
     const detectedIntent = await detectIntentWithOpenAI(
       messageText,
       userSession
@@ -1722,7 +1587,7 @@ async function handleUserMessage(sender, messageText) {
       detectedIntent.confidence
     );
 
-    // CHECK 3: AI-powered human assistance detection
+    // CHECK 3: AI-powered human assistance detection (always check this early)
     const humanAssistanceAnalysis = await detectHumanAssistanceWithAI(
       messageText,
       userSession,
@@ -1750,8 +1615,113 @@ async function handleUserMessage(sender, messageText) {
       }
     }
 
-    // Handle high-confidence intents with AI (existing logic)
-    if (detectedIntent.confidence > 0.6) {
+    // --- STATE-SPECIFIC HANDLING (Conditional based on AI intent) ---
+    // Only call state-specific handlers if the AI's detected intent matches the expected state.
+    // This prevents the bot from getting stuck or misinterpreting input.
+
+    let handledByState = false;
+
+    if (userSession.state === SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION && detectedIntent.intent === "account_confirmation") {
+      const confirmationResponse = await handleAIAccountConfirmation(messageText, userSession);
+      if (confirmationResponse) {
+        await sock.sendMessage(sender, { text: confirmationResponse.message });
+        if (confirmationResponse.newState) {
+          userSession.state = confirmationResponse.newState;
+          userSession.data.loopCount = 0;
+        }
+        await db.write();
+        handledByState = true;
+      }
+    } else if (userSession.state === SESSION_STATES.AWAITING_BENEFICIARY_INFO && detectedIntent.intent === "beneficiary_info") {
+      const beneficiaryResponse = await handleAIBeneficiaryInfo(messageText, userSession);
+      if (beneficiaryResponse) {
+        await sock.sendMessage(sender, { text: beneficiaryResponse.message });
+        if (beneficiaryResponse.newState) {
+          userSession.state = beneficiaryResponse.newState;
+          userSession.data.loopCount = 0;
+        }
+        if (beneficiaryResponse.sessionData) {
+          userSession.data = { ...userSession.data, ...beneficiaryResponse.sessionData };
+        }
+        if (beneficiaryResponse.requiresHumanTransfer) {
+          await transferToHumanAssistance(sender, userSession, {
+            needsHuman: true, confidence: 0.9, reason: beneficiaryResponse.intent,
+            urgency: "medium", category: "complex_query", context: "Beneficiary info extraction failed or was unclear"
+          }, messageText);
+        }
+        await db.write();
+        handledByState = true;
+      }
+    } else if (userSession.state === SESSION_STATES.AWAITING_TRANSFER_TYPE && detectedIntent.intent === "send_money") {
+        // Allow user to select transfer type or re-state intent
+        const transferTypeResponse = handleTransferTypeOriginal(messageText, userSession);
+        if (transferTypeResponse) {
+            await sock.sendMessage(sender, { text: transferTypeResponse.message });
+            if (transferTypeResponse.newState) {
+                userSession.state = transferTypeResponse.newState;
+                userSession.data.loopCount = 0;
+            }
+            if (transferTypeResponse.sessionData) {
+                userSession.data = { ...userSession.data, ...transferTypeResponse.sessionData };
+            }
+            await db.write();
+            handledByState = true;
+        }
+    } else if (userSession.state === SESSION_STATES.AWAITING_COUNTRY && detectedIntent.intent === "send_money") {
+        const countryResponse = handleCountryInputOriginal(messageText, userSession);
+        if (countryResponse) {
+            await sock.sendMessage(sender, { text: countryResponse.message });
+            if (countryResponse.newState) {
+                userSession.state = countryResponse.newState;
+                userSession.data.loopCount = 0;
+            }
+            if (countryResponse.sessionData) {
+                userSession.data = { ...userSession.data, ...countryResponse.sessionData };
+            }
+            await db.write();
+            handledByState = true;
+        }
+    } else if (userSession.state === SESSION_STATES.AWAITING_AMOUNT && detectedIntent.intent === "send_money") {
+        const amountResponse = handleAmountInputOriginal(messageText, userSession);
+        if (amountResponse) {
+            await sock.sendMessage(sender, { text: amountResponse.message });
+            if (amountResponse.newState) {
+                userSession.state = amountResponse.newState;
+                userSession.data.loopCount = 0;
+            }
+            if (amountResponse.sessionData) {
+                userSession.data = { ...userSession.data, ...amountResponse.sessionData };
+            }
+            await db.write();
+            handledByState = true;
+        }
+    }
+
+    if (handledByState) {
+        return; // If a state-specific handler took action, we're done.
+    }
+
+    // --- GENERAL INTENT HANDLING (if not handled by specific state) ---
+    // This is where the AI drives the conversation for new intents or topic changes.
+
+    // First, try direct pattern matching for common initial phrases (e.g., "send money", "physical delivery")
+    // This can be faster than full AI processing for very common, clear cases.
+    const directResponse = await handleDirectPatterns(messageText, userSession);
+    if (directResponse) {
+      await sock.sendMessage(sender, { text: directResponse.message });
+      if (directResponse.newState) {
+        userSession.state = directResponse.newState;
+        userSession.data.loopCount = 0; // Reset loop count on state change
+      }
+      if (directResponse.sessionData) {
+        userSession.data = { ...userSession.data, ...directResponse.sessionData };
+      }
+      await db.write();
+      return;
+    }
+
+    // Then, use the AI's detected intent to route to the appropriate intelligent handler
+    if (detectedIntent.confidence > 0.6) { // Only proceed if AI is reasonably confident
       const response = await handleIntelligentIntent(
         detectedIntent,
         userSession,
@@ -1786,7 +1756,8 @@ async function handleUserMessage(sender, messageText) {
       }
     }
 
-    // Generate contextual response using OpenAI (existing logic)
+    // --- CONTEXTUAL FALLBACK / AI GENERATED RESPONSE ---
+    // If no specific intent or state handler took action, generate a contextual response.
     console.log("🤖 Generando respuesta contextual con OpenAI...");
     const contextualResponse = await generateContextualResponse(
       messageText,
@@ -1823,7 +1794,7 @@ async function handleUserMessage(sender, messageText) {
       });
       await db.write();
     } else {
-      // Final fallback to original logic (existing logic)
+      // Final fallback to original logic if AI also fails to generate a coherent response
       console.log("🔄 Usando lógica de fallback original");
       await handleFallbackResponse(sender, messageText, userSession);
     }
@@ -1843,6 +1814,11 @@ async function handleUserMessage(sender, messageText) {
 
 
 
+
+
+
+// Inside MultipleFiles/bot.js
+
 // Inside MultipleFiles/bot.js
 
 async function handleIntelligentIntent(
@@ -1855,14 +1831,14 @@ async function handleIntelligentIntent(
   try {
     switch (intent) {
       case "send_money":
-        // If user explicitly says "send money", assume digital transfer
-        // and clear any lingering physical delivery flags.
+        // If AI detects "send_money", explicitly set for bank transfer
         userSession.data.physicalDelivery = false;
         userSession.data.deliveryType = "bank_transfer";
         return await handleAISendMoney(entities, userSession, originalMessage);
 
       case "physical_delivery":
-        // Explicitly set physical delivery flags
+      case "cash_delivery": // Treat cash_delivery as physical_delivery
+        // If AI detects physical delivery, explicitly set flags
         userSession.data.physicalDelivery = true;
         userSession.data.deliveryType = "physical_dollars";
         return await handlePhysicalDeliveryRequest(
@@ -1877,31 +1853,30 @@ async function handleIntelligentIntent(
         );
 
       case "delivery_comparison":
+        // For comparison, clear physical delivery flag if it was set, as user is exploring options
+        userSession.data.physicalDelivery = false;
         return await handleDeliveryComparison(originalMessage, userSession);
 
       case "check_rate":
+        // Rate check doesn't imply delivery type, so clear if set
+        userSession.data.physicalDelivery = false;
         return await handleAIRateCheck(entities, userSession, originalMessage);
 
       case "account_confirmation":
+        // This intent is usually handled by state-specific logic, but if AI detects it out of sequence,
+        // it might be a confirmation for a previous flow. Let the handler decide.
         return handleAIAccountConfirmation(originalMessage, userSession);
 
       case "beneficiary_info":
+        // Similar to account_confirmation, let the handler decide based on session context.
         return await handleAIBeneficiaryInfo(originalMessage, userSession);
 
       case "receipt_submission":
         return handleAIReceiptSubmission(originalMessage, userSession);
 
-      case "cash_delivery":
-        // Treat cash_delivery as physical_delivery
-        userSession.data.physicalDelivery = true;
-        userSession.data.deliveryType = "physical_dollars";
-        return await handleAICashDelivery(
-          entities,
-          userSession,
-          originalMessage
-        );
-
       case "greeting":
+        // Clear any previous context on a new greeting
+        userSession.data = {}; // Reset all session data
         return {
           message: response.greeting,
           intent: "greeting",
@@ -1921,15 +1896,13 @@ async function handleIntelligentIntent(
         };
 
       case "human_agent":
-        // This will be handled by the main message handler's human detection
         return {
-          message: response.human, // Use the generic human message from response.json
+          message: response.human,
           intent: "human_transfer_requested",
           requiresHumanTransfer: true,
         };
 
       case "complaint":
-        // This will also trigger human transfer
         return {
           message:
             "😔 Lamento escuchar que has tenido una experiencia no satisfactoria. Te conectaré inmediatamente con un supervisor que podrá ayudarte.",
@@ -1938,7 +1911,7 @@ async function handleIntelligentIntent(
         };
 
       case "unknown":
-        // If AI is unsure, try to use contextual response or fallback
+        // If AI is unsure, return null to let contextual response or fallback handle it
         return null;
 
       default:
@@ -1954,6 +1927,10 @@ async function handleIntelligentIntent(
 // Inside MultipleFiles/bot.js
 
 async function handleAISendMoney(entities, userSession, originalMessage) {
+  // Explicitly clear physicalDelivery flag when send_money intent is handled
+  userSession.data.physicalDelivery = false;
+  userSession.data.deliveryType = "bank_transfer"; // Default to bank transfer for send_money
+
   const amountInfo = intelligentAmountExtraction(originalMessage);
   const countryInfo = intelligentCountryDetection(originalMessage);
 
@@ -2076,6 +2053,8 @@ async function handleAISendMoney(entities, userSession, originalMessage) {
     newState: SESSION_STATES.AWAITING_COUNTRY,
   };
 }
+
+
 
 
 // AI-powered rate check handler
@@ -2931,22 +2910,16 @@ function handleAccountConfirmationOriginal(messageText, userSession) {
   }
 }
 
-// Update handleTransferTypeOriginal to include physical delivery option
+// Inside MultipleFiles/bot.js
+
 function handleTransferTypeOriginal(messageText, userSession) {
   const lower = messageText.toLowerCase().trim();
 
-  // If physical delivery was already confirmed, and user is somehow here,
-  // it means they might be trying to change the type or there's a loop.
-  // For now, we can guide them back or re-confirm.
-  if (userSession.data.physicalDelivery) {
-        return {
-            message: "Ya hemos establecido que deseas una entrega física de dólares. ¿Deseas cambiar el tipo de entrega o continuar con la información del beneficiario?",
-            intent: "physical_delivery_already_set",
-            newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO, // Or a state to re-confirm delivery type
-        };
-    }
-
+  // If the user explicitly selects "1" for bank transfer here,
+  // we should ensure the physicalDelivery flag is set and then
+  // delegate to the handlePhysicalDeliveryRequest to continue the flow.
   if (lower === "1" || lower.includes("transferencia")) {
+    // Proceed with bank transfer instructions
     return {
       message:
         "📝 **Instrucciones para Transferencia Bancaria:**\n\n**Paso 1** - Solicita las cuentas bancarias actualizadas aquí.\n\n**Paso 2** - En el concepto de la transferencia, escribe:\n📌 ENTREGAR: Nombre y apellido del destinatario + los últimos 5 dígitos de tu WhatsApp.\n\n**Paso 3** - Después de transferir, envíame:\n1️⃣ Una foto del comprobante\n2️⃣ La información del beneficiario",
@@ -2959,6 +2932,7 @@ function handleTransferTypeOriginal(messageText, userSession) {
     lower.includes("depósito") ||
     lower.includes("efectivo")
   ) {
+    // Proceed with cash deposit instructions
     return {
       message:
         "📝 **Instrucciones para Depósito en Efectivo:**\n\n**Paso 1** - Solicita las cuentas bancarias actualizadas aquí.\n\n**Paso 2** - Debes escribir en la boleta de depósito:\n📌 Nombre y apellido del destinatario + últimos 5 dígitos de tu WhatsApp.\n\n**Paso 3** - Después de depositar, envíame:\n1️⃣ Una foto del comprobante\n2️⃣ La información del beneficiario",
@@ -2988,7 +2962,7 @@ function handleTransferTypeOriginal(messageText, userSession) {
         wantsPhysicalDelivery: true,
         confidence: 1.0,
         deliveryKeywords: ["físico"],
-        context: "User selected physical delivery option 3"
+        context: "User  selected physical delivery option 3"
       });
     }
 
@@ -3012,6 +2986,9 @@ function handleTransferTypeOriginal(messageText, userSession) {
     };
   }
 }
+
+
+
 
 
 
