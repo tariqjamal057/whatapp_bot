@@ -162,6 +162,8 @@ const SESSION_STATES = sessionStatesData.SESSION_STATES;
 
 // OpenAI Intent Detection - Core AI Function
 // Update the detectIntentWithOpenAI function to better handle delivery types
+// Inside MultipleFiles/bot.js
+
 async function detectIntentWithOpenAI(messageText, userSession) {
   try {
     const systemPrompt = `You are an AI assistant for Tecno Inversiones, a money transfer service to Venezuela.
@@ -187,7 +189,7 @@ ANALYZE the user's message and respond with a JSON object containing:
 }
 
 INTENTS:
-- send_money: wants to transfer money
+- send_money: wants to transfer money (implies bank transfer unless specified)
 - physical_delivery: wants physical dollar delivery in Venezuela
 - check_rate: wants exchange rates
 - human_agent: wants human help
@@ -196,7 +198,7 @@ INTENTS:
 - account_confirmation: confirming account ownership
 - beneficiary_info: providing recipient details
 - receipt_submission: sending payment proof
-- cash_delivery: wants cash delivery service
+- cash_delivery: wants cash delivery service (synonym for physical_delivery)
 - kyc_verification: identity verification
 - business_hours: asking about hours
 - promo_inquiry: asking about promotions
@@ -206,7 +208,7 @@ PHYSICAL DELIVERY DETECTION:
 Keywords: "cash", "efectivo", "physical dollars", "dólares físicos", "delivery in $", "entrega en $", "dollars in hand", "dólares en mano", "cash delivery", "entrega en efectivo", "physical", "físico", "en persona", "deliver cash", "entregar efectivo", "dollars at home", "dólares a domicilio"
 
 BANK TRANSFER DETECTION:
-Keywords: "transferencia", "bank transfer", "cuenta bancaria", "bank account", "bolívares", "bolivares", "bs", "tasa", "rate"
+Keywords: "transferencia", "bank transfer", "cuenta bancaria", "bank account", "bolívares", "bolivares", "bs", "tasa", "rate", "enviar dinero", "mandar dinero", "transferir"
 
 CURRENT SESSION:
 State: ${userSession.state}
@@ -254,6 +256,7 @@ USER MESSAGE: "${messageText}"`;
     };
   }
 }
+
 
 // Generate Contextual AI Response
 async function generateContextualResponse(
@@ -506,6 +509,9 @@ function intelligentCountryDetection(messageText) {
   return null;
 }
 
+
+// Inside MultipleFiles/bot.js
+
 async function handleDirectPatterns(messageText, userSession) {
   const text = messageText.toLowerCase().trim();
   const currentState = userSession.state;
@@ -524,7 +530,21 @@ async function handleDirectPatterns(messageText, userSession) {
     "entregar efectivo",
   ];
 
+  const digitalKeywords = [
+    "enviar dinero",
+    "transferir",
+    "mandar dinero",
+    "send money",
+    "transfer",
+    "digital",
+    "online",
+  ];
+
   const hasPhysicalKeyword = physicalKeywords.some((keyword) =>
+    text.includes(keyword)
+  );
+
+  const hasDigitalKeyword = digitalKeywords.some((keyword) =>
     text.includes(keyword)
   );
 
@@ -535,34 +555,31 @@ async function handleDirectPatterns(messageText, userSession) {
     }
   }
 
-  if (hasPhysicalKeyword && currentState === SESSION_STATES.INITIAL) {
+  // If digital keyword is detected and we are in INITIAL state,
+  // directly proceed to handle digital transfer.
+  if (hasDigitalKeyword && currentState === SESSION_STATES.INITIAL) {
     return {
-      message:
-        "💵 ¡Perfecto! Puedes enviar dólares físicos a Venezuela.\n\n🔒 **Información importante:**\n• Comisión fija: 10% del monto\n• Tiempo de entrega: 24-48 horas\n• Entrega segura a domicilio\n• Dólares reales en mano\n\n¿Desde qué país y por cuánto deseas enviar?\n\nEjemplo: 'Desde República Dominicana, $500 USD'",
-      newState: SESSION_STATES.CASH_DELIVERY,
-      sessionData: {
-        deliveryType: "physical_dollars",
-        physicalDelivery: true,
-        requestType: "physical_delivery",
-      },
+      message: "¡Perfecto! 🙌 Te ayudo a enviar dinero a Venezuela.\n\n¿Desde qué país estás enviando y cuál es el monto aproximado?\n\nEjemplo: 'Desde República Dominicana, 5000 pesos' o 'Desde Perú, $300 USD'",
+      newState: SESSION_STATES.SEND_MONEY_STARTED,
+      sessionData: { requestType: "send_money" },
     };
   }
 
-  // Handle "I want to send bolivars" or similar
-  if (
-    text.includes("bolivar") ||
-    text.includes("bolívar") ||
-    text.includes("enviar dinero") ||
-    text.includes("send money")
-  ) {
-    if (currentState === SESSION_STATES.INITIAL) {
-      return {
-        message:
-          "¡Perfecto! 🙌 Te ayudo a enviar dinero a Venezuela.\n\n¿Desde qué país estás enviando y cuál es el monto aproximado?\n\nEjemplo: 'Desde República Dominicana, 5000 pesos' o 'Desde Perú, $300 USD'",
-        newState: SESSION_STATES.SEND_MONEY_STARTED,
-        sessionData: { requestType: "send_money" },
-      };
-    }
+  // If physical keyword is detected and we are in INITIAL state,
+  // directly call handlePhysicalDeliveryRequest to start that flow.
+  if (hasPhysicalKeyword && currentState === SESSION_STATES.INITIAL) {
+    // Set physicalDelivery flag early
+    userSession.data.deliveryType = "physical_dollars";
+    userSession.data.physicalDelivery = true;
+    userSession.data.requestType = "physical_delivery";
+
+    // Now, let handlePhysicalDeliveryRequest manage the rest
+    return await handlePhysicalDeliveryRequest(messageText, userSession, {
+      wantsPhysicalDelivery: true,
+      confidence: 1.0, // High confidence as keyword was found
+      deliveryKeywords: physicalKeywords.filter(k => text.includes(k)),
+      context: "User  explicitly requested physical delivery in initial message"
+    });
   }
 
   // Handle country + amount in one message
@@ -573,49 +590,39 @@ async function handleDirectPatterns(messageText, userSession) {
     countryInfo &&
     amountInfo &&
     (currentState === SESSION_STATES.SEND_MONEY_STARTED ||
-      currentState === SESSION_STATES.INITIAL)
+      currentState === SESSION_STATES.INITIAL ||
+      currentState === SESSION_STATES.AWAITING_COUNTRY || // Added for robustness
+      currentState === SESSION_STATES.AWAITING_AMOUNT) // Added for robustness
   ) {
-    const country = countryInfo.country;
-    let amount = amountInfo.amount;
+    // Store detected info in session data immediately
+    userSession.data.country = countryInfo.country;
+    userSession.data.amount = amountInfo.amount;
+    userSession.data.currency = amountInfo.currency;
 
-    // Handle currency conversion if needed
-    if (amountInfo.currency === "USD" && country !== "ecuador") {
-      amount = convertUSDToLocalCurrency(amount, country);
-    }
-
-    // Check if user wants physical delivery based on context
+    // Check if user wants physical delivery based on context or previous session
     const wantsPhysical =
       hasPhysicalKeyword ||
       userSession.data.physicalDelivery ||
       userSession.data.deliveryType === "physical_dollars";
 
     if (wantsPhysical) {
-      const calculation = calculatePhysicalDeliveryEnhanced(
-        amount,
-        country,
-        false
-      );
-
-      if (calculation.success) {
-        return {
-          message: `✅ Perfecto, entrega de dólares físicos desde ${getCountryDisplayName(
-            country
-          )}.\n\n${
-            calculation.message
-          }\n\n¿Confirmas que eres el titular de la cuenta desde la cual harás la transferencia?`,
-          newState: SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION,
-          sessionData: {
-            amount: amount,
-            country: country,
-            currency: amountInfo.currency || "USD",
-            deliveryType: "physical_dollars",
-            physicalDelivery: true,
-            calculation: calculation,
-          },
-        };
-      }
+      // If physical delivery is intended, delegate to handlePhysicalDeliveryRequest
+      return await handlePhysicalDeliveryRequest(messageText, userSession, {
+        wantsPhysicalDelivery: true,
+        confidence: 1.0,
+        deliveryKeywords: [],
+        context: "Combined amount/country with physical intent"
+      });
     } else {
-      // Regular bank transfer calculation
+      // Regular bank transfer calculation (existing logic)
+      const country = countryInfo.country;
+      let amount = amountInfo.amount;
+
+      // Handle currency conversion if needed
+      if (amountInfo.currency === "USD" && country !== "ecuador") {
+        amount = convertUSDToLocalCurrency(amount, country);
+      }
+
       const rateInfo = calculateRate(amount, country);
 
       if (rateInfo.error) {
@@ -649,12 +656,25 @@ async function handleDirectPatterns(messageText, userSession) {
     }
   }
 
-  // Handle just country
+  // Handle just country (if amount is missing)
   if (
     countryInfo &&
     (currentState === SESSION_STATES.SEND_MONEY_STARTED ||
       currentState === SESSION_STATES.AWAITING_COUNTRY)
   ) {
+    // Store country in session
+    userSession.data.country = countryInfo.country;
+
+    // If physical delivery is already set, delegate to handlePhysicalDeliveryRequest
+    if (userSession.data.physicalDelivery) {
+        return await handlePhysicalDeliveryRequest(messageText, userSession, {
+            wantsPhysicalDelivery: true,
+            confidence: 1.0,
+            deliveryKeywords: [],
+            context: "Country provided for existing physical intent"
+        });
+    }
+
     return {
       message: `¡Excelente! Desde ${getCountryDisplayName(
         countryInfo.country
@@ -664,15 +684,31 @@ async function handleDirectPatterns(messageText, userSession) {
     };
   }
 
-  // Handle just amount
+  // Handle just amount (if country is missing)
   if (
     amountInfo &&
     (currentState === SESSION_STATES.AWAITING_AMOUNT ||
       (currentState === SESSION_STATES.SEND_MONEY_STARTED &&
         userSession.data.country))
   ) {
-    const country = userSession.data.country;
-    if (country) {
+    // Store amount and currency in session
+    userSession.data.amount = amountInfo.amount;
+    userSession.data.currency = amountInfo.currency;
+
+    const country = userSession.data.country; // Get country from session
+
+    if (country) { // If country is now available from session
+      // If physical delivery is already set, delegate to handlePhysicalDeliveryRequest
+      if (userSession.data.physicalDelivery) {
+          return await handlePhysicalDeliveryRequest(messageText, userSession, {
+              wantsPhysicalDelivery: true,
+              confidence: 1.0,
+              deliveryKeywords: [],
+              context: "Amount provided for existing physical intent with country in session"
+          });
+      }
+
+      // Existing bank transfer logic if not physical delivery
       let amount = amountInfo.amount;
 
       // Handle currency conversion if needed
@@ -680,71 +716,55 @@ async function handleDirectPatterns(messageText, userSession) {
         amount = convertUSDToLocalCurrency(amount, country);
       }
 
-      const isPhysicalDelivery =
-        userSession.data.physicalDelivery ||
-        userSession.data.deliveryType === "physical_dollars";
+      const rateInfo = calculateRate(amount, country);
 
-      if (isPhysicalDelivery) {
-        const calculation = calculatePhysicalDeliveryEnhanced(
-          amount,
-          country,
-          false
-        );
-
-        if (calculation.success) {
-          return {
-            message: `✅ Perfecto, ${formatCurrency(
-              amount,
-              country
-            )} desde ${getCountryDisplayName(country)} con entrega física.\n\n${
-              calculation.message
-            }\n\n¿Confirmas que eres el titular de la cuenta desde la cual harás la transferencia?`,
-            newState: SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION,
-            sessionData: {
-              amount: amount,
-              currency: amountInfo.currency || "USD",
-              deliveryType: "physical_dollars",
-              physicalDelivery: true,
-              calculation: calculation,
-            },
-          };
-        }
-      } else {
-        const rateInfo = calculateRate(amount, country);
-
-        if (rateInfo.error) {
-          return {
-            message:
-              "😓 Lo siento, las tasas de hoy aún no han sido cargadas. Un asesor te ayudará con el cálculo exacto.",
-            newState: SESSION_STATES.INITIAL,
-          };
-        }
-
+      if (rateInfo.error) {
         return {
-          message: `✅ Perfecto, ${formatCurrency(
-            amount,
-            country
-          )} desde ${getCountryDisplayName(
-            country
-          )}.\n\n💰 **Cálculo:**\n📊 Monto: ${formatCurrency(
-            amount,
-            country
-          )}\n📈 Tasa: ${rateInfo.rate} Bs\n💵 El beneficiario recibirá: **${
-            rateInfo.receivedAmount
-          } Bs**\n\n¿Confirmas que eres el titular de la cuenta desde la cual harás la transferencia?`,
-          newState: SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION,
-          sessionData: {
-            amount: amount,
-            currency: amountInfo.currency || "DOP",
-            rateInfo: rateInfo,
-          },
+          message:
+            "😓 Lo siento, las tasas de hoy aún no han sido cargadas. Un asesor te ayudará con el cálculo exacto.",
+          newState: SESSION_STATES.INITIAL,
         };
       }
+
+      return {
+        message: `✅ Perfecto, ${formatCurrency(
+          amount,
+          country
+        )} desde ${getCountryDisplayName(
+          country
+        )}.\n\n💰 **Cálculo:**\n📊 Monto: ${formatCurrency(
+          amount,
+          country
+        )}\n📈 Tasa: ${rateInfo.rate} Bs\n💵 El beneficiario recibirá: **${
+          rateInfo.receivedAmount
+        } Bs**\n\n¿Confirmas que eres el titular de la cuenta desde la cual harás la transferencia?`,
+        newState: SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION,
+        sessionData: {
+          amount: amount,
+          country: country,
+          currency: amountInfo.currency || "DOP",
+          rateInfo: rateInfo,
+        },
+      };
+    } else { // If country is still missing after amount is provided
+        return {
+            message: `Perfecto, quieres enviar ${amountInfo.amount} ${
+                amountInfo.currency !== "UNKNOWN" ? amountInfo.currency : ""
+            }.\n\n🌎 ¿Desde qué país estás enviando?\n\n🇩🇴 República Dominicana\n🇵🇪 Perú\n🇪🇨 Ecuador\n🇨🇴 Colombia\n🇨🇱 Chile`,
+            intent: "amount_detected_need_country",
+            newState: SESSION_STATES.AWAITING_COUNTRY,
+            sessionData: {
+                amount: amountInfo.amount,
+                currency: amountInfo.currency,
+            },
+        };
     }
   }
 
   return null; // No direct pattern matched
 }
+
+
 
 // ==================== AI-POWERED HUMAN ASSISTANCE MANAGEMENT ====================
 
@@ -989,7 +1009,6 @@ async function resolveHumanAssistance(
     // Send resolution confirmation
     await sock.sendMessage(sender, { text: confirmationMessage });
 
-
     // Calculate resolution time
     const resolutionTime = transferData.transferTime
       ? Math.round(
@@ -1217,122 +1236,147 @@ function getUsersWaitingForHuman() {
   return waitingUsers;
 }
 
-// Add this new function
+// Inside MultipleFiles/bot.js
+
 async function handlePhysicalDeliveryRequest(
   messageText,
   userSession,
-  physicalAnalysis
+  physicalAnalysis // This parameter is useful if AI already detected physical delivery
 ) {
   try {
+    // Always try to extract amount and country from the current message
     const amountInfo = intelligentAmountExtraction(messageText);
     const countryInfo = intelligentCountryDetection(messageText);
 
     console.log("💵 Procesando solicitud de entrega física:", {
       amountInfo,
       countryInfo,
+      userSessionData: userSession.data // Debugging: see what's in session
     });
 
-    // If we have both amount and country
-    if (
-      amountInfo &&
-      amountInfo.confidence > 0.6 &&
-      countryInfo &&
-      countryInfo.confidence > 0.8
-    ) {
-      const country = countryInfo.country;
-      let amount = amountInfo.amount;
+    // Update session data with newly extracted info if available
+    if (amountInfo && amountInfo.confidence > 0.6) {
+      userSession.data.amount = amountInfo.amount;
+      userSession.data.currency = amountInfo.currency;
+    }
+    if (countryInfo && countryInfo.confidence > 0.8) {
+      userSession.data.country = countryInfo.country;
+    }
 
-      // Convert to local currency if needed
-      if (amountInfo.currency === "USD" && country !== "ecuador") {
-        amount = convertUSDToLocalCurrency(amount, country);
-      }
+    // Now, check if we have ALL necessary information (amount AND country)
+    // from either the current message or previous session data.
+    const finalAmount = userSession.data.amount;
+    const finalCountry = userSession.data.country;
+    const finalCurrency = userSession.data.currency; // Keep track of currency
 
-      const isNetAmount = isNetAmountIntent(messageText);
+    // Ensure physicalDelivery flag is set for this flow
+    userSession.data.physicalDelivery = true;
+    userSession.data.deliveryType = "physical_dollars";
+
+    if (finalAmount && finalCountry) {
+      let amountForCalculation = finalAmount;
+
+      const isNetAmount = isNetAmountIntent(messageText); // Check if they want to receive exact amount
+
       const calculation = calculatePhysicalDeliveryEnhanced(
-        amount,
-        country,
+        amountForCalculation, // Use the amount from session or current message
+        finalCountry,
         isNetAmount
       );
 
       if (calculation.success) {
+        userSession.state = SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION;
+        userSession.data.loopCount = 0; // Reset loop count
+
         return {
           message: `✅ Perfecto, entrega de dólares físicos en Venezuela desde ${getCountryDisplayName(
-            country
+            finalCountry
           )}.\n\n${
             calculation.message
           }\n\n¿Confirmas que eres el titular de la cuenta desde la cual harás la transferencia?`,
           intent: "physical_delivery_calculated",
-          newState: SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION,
+          newState: SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION, // Explicitly set state
           sessionData: {
-            country: country,
-            amount: amount,
+            country: finalCountry,
+            amount: finalAmount, // Store original amount
+            currency: finalCurrency, // Store original currency
             deliveryType: "physical_dollars",
             calculation: calculation,
-            physicalDelivery: true,
+            physicalDelivery: true, // Crucial flag
           },
         };
       } else {
+        // If calculation failed, reset relevant session data
+        delete userSession.data.amount;
+        delete userSession.data.currency;
+        delete userSession.data.country;
         return {
           message: calculation.message,
           intent: "physical_delivery_error",
+          newState: SESSION_STATES.INITIAL, // Go back to initial state on error
         };
       }
     }
 
-    // If we have country but need amount
-    if (countryInfo && countryInfo.confidence > 0.8) {
-      return {
-        message: `✅ Perfecto, entrega de dólares físicos en Venezuela desde ${getCountryDisplayName(
-          countryInfo.country
-        )}.\n\n🔒 **Comisión fija: 10%** para cubrir la logística de entrega física.\n\n💰 ¿Cuál es el monto que deseas enviar?\n\nEjemplo: "$500 USD" o "${formatCurrency(
-          1000,
-          countryInfo.country
-        )}"`,
-        intent: "physical_delivery_country_detected",
-        newState: SESSION_STATES.AWAITING_AMOUNT,
-        sessionData: {
-          country: countryInfo.country,
-          deliveryType: "physical_dollars",
-          physicalDelivery: true,
-        },
-      };
-    }
-
-    // If we have amount but need country
-    if (amountInfo && amountInfo.confidence > 0.6) {
+    // If we don't have both, determine what's missing and ask for it.
+    // Prioritize asking for country if amount is known, or vice-versa.
+    if (finalAmount && !finalCountry) {
+      // This is the block that needs to ensure the amount is correctly passed
+      // and the state is set to AWAITING_COUNTRY.
       return {
         message: `💵 Perfecto, entrega de dólares físicos por ${
-          amountInfo.currency !== "UNKNOWN"
-            ? "$" + amountInfo.amount + " USD"
-            : amountInfo.amount
+          finalCurrency !== "UNKNOWN" ? "$" + finalAmount + " USD" : finalAmount
         }.\n\n🔒 **Comisión fija: 10%** para logística de entrega física.\n\n🌎 ¿Desde qué país estás enviando?\n\n🇩🇴 República Dominicana\n🇵🇪 Perú\n🇪🇨 Ecuador\n🇨🇴 Colombia\n🇨🇱 Chile`,
         intent: "physical_delivery_amount_detected",
-        newState: SESSION_STATES.AWAITING_COUNTRY,
+        newState: SESSION_STATES.AWAITING_COUNTRY, // Explicitly set state
         sessionData: {
-          amount: amountInfo.amount,
-          currency: amountInfo.currency,
+          amount: finalAmount, // Ensure amount is explicitly in sessionData for next turn
+          currency: finalCurrency,
           deliveryType: "physical_dollars",
-          physicalDelivery: true,
+          physicalDelivery: true, // Crucial flag
         },
       };
     }
 
-    // Generic physical delivery response
+    if (finalCountry && !finalAmount) {
+      return {
+        message: `✅ Perfecto, entrega de dólares físicos en Venezuela desde ${getCountryDisplayName(
+          finalCountry
+        )}.\n\n🔒 **Comisión fija: 10%** para cubrir la logística de entrega física.\n\n💰 ¿Cuál es el monto que deseas enviar? Por favor especifica la moneda (ej: "$500 USD" o "${formatCurrency(
+          1000,
+          finalCountry
+        )}" si es moneda local)`,
+        intent: "physical_delivery_country_detected",
+        newState: SESSION_STATES.AWAITING_AMOUNT, // Explicitly set state
+        sessionData: {
+          country: finalCountry,
+          deliveryType: "physical_dollars",
+          physicalDelivery: true, // Crucial flag
+        },
+      };
+    }
+
+    // If neither amount nor country is known, provide generic info and ask for both.
     return {
       message: `💵 **Entrega de Dólares Físicos en Venezuela**\n\n✅ Disponible desde cualquier país\n🔒 Comisión fija: **10%** del monto\n⏱️ Tiempo de entrega: 24-48 horas\n🚚 Incluye logística de transporte seguro\n\n¿Desde qué país y por cuánto deseas enviar?\n\nEjemplo: "Desde República Dominicana, $500 USD"`,
       intent: "physical_delivery_generic",
-      newState: SESSION_STATES.CASH_DELIVERY,
+      newState: SESSION_STATES.CASH_DELIVERY, // Or AWAITING_COUNTRY if you prefer to start there
       sessionData: {
         deliveryType: "physical_dollars",
-        physicalDelivery: true,
+        physicalDelivery: true, // Crucial flag
       },
     };
   } catch (error) {
     console.error("❌ Error handling physical delivery request:", error);
+    // Reset session data on error to avoid persistent bad state
+    delete userSession.data.amount;
+    delete userSession.data.currency;
+    delete userSession.data.country;
     return {
       message:
-        "❌ Error procesando solicitud de entrega física. Un asesor te ayudará.",
+        "❌ Error procesando solicitud de entrega física. Por favor intenta nuevamente.",
       intent: "physical_delivery_error",
+      newState: SESSION_STATES.INITIAL,
     };
   }
 }
@@ -1345,6 +1389,8 @@ function isAgentMessage(sender) {
 
   return sender === agentJID;
 }
+
+// Inside MultipleFiles/bot.js
 
 async function handleAIAccountConfirmation(messageText, userSession) {
   try {
@@ -1375,22 +1421,33 @@ USER RESPONSE: "${messageText}"`;
       model: "gpt-3.5-turbo",
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: messageText }
+        { role: "user", content: messageText },
       ],
       temperature: 0,
-      max_tokens: 200
+      max_tokens: 200,
     });
 
     const parsed = JSON.parse(completion.choices[0].message.content.trim());
     console.log("🤖 AI Account Confirmation Analysis:", parsed);
 
     if (parsed.confirmation === "yes") {
-      return {
-        message:
-          "¡Perfecto! 🙌 Confirmado que eres el titular de la cuenta.\n\n📝 Ahora, ¿cómo prefieres realizar el pago?\n\n1️⃣ **Transferencia bancaria** (Bolívares)\n2️⃣ **Depósito en efectivo** (Bolívares)\n3️⃣ **Entrega física** (Dólares USD - Comisión 10%)\n\nResponde con el número de tu opción preferida.",
-        intent: "account_confirmed",
-        newState: SESSION_STATES.AWAITING_TRANSFER_TYPE,
-      };
+      // Check if physical delivery was already established in the session
+      if (userSession.data.physicalDelivery) {
+        return {
+          message:
+            "¡Perfecto! 🙌 Confirmado que eres el titular de la cuenta y que deseas entrega física.\n\n📝 Ahora, por favor, proporciona la información del beneficiario para la entrega de los dólares físicos:\n\n📌 **Nombre y Apellido del beneficiario**\n📌 **Cédula**\n📌 **Teléfono de contacto**\n📌 **Dirección completa de entrega**",
+          intent: "account_confirmed_physical_delivery",
+          newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
+        };
+      } else {
+        // Original flow for other transfer types (bank transfer, cash deposit)
+        return {
+          message:
+            "¡Perfecto! 🙌 Confirmado que eres el titular de la cuenta.\n\n📝 Ahora, ¿cómo prefieres realizar el pago?\n\n1️⃣ **Transferencia bancaria** (Bolívares)\n2️⃣ **Depósito en efectivo** (Bolívares)\n3️⃣ **Entrega física** (Dólares USD - Comisión 10%)\n\nResponde con el número de tu opción preferida.",
+          intent: "account_confirmed",
+          newState: SESSION_STATES.AWAITING_TRANSFER_TYPE,
+        };
+      }
     } else if (parsed.confirmation === "no") {
       return {
         message:
@@ -1419,6 +1476,8 @@ USER RESPONSE: "${messageText}"`;
 
 
 
+// Inside MultipleFiles/bot.js
+
 async function handleUserMessage(sender, messageText) {
   try {
     console.log("🔄 Procesando mensaje de:", sender, "Texto:", messageText);
@@ -1435,7 +1494,7 @@ async function handleUserMessage(sender, messageText) {
     const userSession = db.data.userSessions[sender];
     userSession.lastActivity = new Date().toISOString();
 
-    // Check for continue responses first (existing logic)
+    // Check for continue responses first (existing logic) - Keep this early
     const continueResponse = handleContinueResponse(messageText, userSession);
     if (continueResponse) {
       await sock.sendMessage(sender, { text: continueResponse.message });
@@ -1466,82 +1525,7 @@ async function handleUserMessage(sender, messageText) {
     db.data.users[sender].messageCount++;
     db.data.users[sender].lastMessage = new Date().toISOString();
 
-    if (isAgentMessage(sender) && isResolutionMessage(messageText)) {
-    await closeHumanAssistanceCase(sender, messageText);
-    return; // Stop further processing
-  }
-
-
-    // --- NEW LOGIC: Check for resolution message from agent ---
-    const resolutionAnalysis = await detectAdvisorResolutionWithAI(messageText);
-    if (
-      resolutionAnalysis.isResolution &&
-      resolutionAnalysis.confidence > 0.7
-    ) {
-      console.log("🔧 Mensaje de resolución detectado por AI");
-
-      // Find users waiting for resolution and resolve them
-      const waitingUsers = getUsersWaitingForHuman(); // This function needs to be defined (see below)
-      if (waitingUsers.length > 0) {
-        // For now, resolve the most recent case. You can enhance this logic
-        // to match the resolution message to a specific user if you have
-        // a more complex agent-bot interaction setup (e.g., agent sends
-        // a command like "/resolve <user_id>").
-        const mostRecentUser = waitingUsers.sort(
-          (a, b) => new Date(b.transferTime) - new Date(a.transferTime)
-        )[0];
-
-        const targetSession = db.data.userSessions[mostRecentUser.fullId];
-        if (targetSession) {
-          await resolveHumanAssistance(
-            mostRecentUser.fullId,
-            targetSession,
-            messageText
-          );
-          return; // Stop processing as the message was for resolution
-        }
-      }
-    }
-    // --- END NEW LOGIC ---
-
-    // --- NEW LOGIC: Handle physical delivery request (if applicable) ---
-    const physicalDeliveryAnalysis = await detectPhysicalDeliveryWithAI(
-      messageText,
-      userSession
-    );
-
-    if (
-      physicalDeliveryAnalysis.wantsPhysicalDelivery &&
-      physicalDeliveryAnalysis.confidence > 0.7
-    ) {
-      console.log(
-        "💵 AI detectó solicitud de entrega física:",
-        physicalDeliveryAnalysis
-      );
-
-      const response = await handlePhysicalDeliveryRequest(
-        messageText,
-        userSession,
-        physicalDeliveryAnalysis
-      );
-      if (response) {
-        await sock.sendMessage(sender, { text: response.message });
-
-        if (response.newState) {
-          userSession.state = response.newState;
-          userSession.data.loopCount = 0;
-        }
-        if (response.sessionData) {
-          userSession.data = { ...userSession.data, ...response.sessionData };
-        }
-
-        await db.write();
-        return;
-      }
-    }
-    // --- END NEW LOGIC ---
-
-    // CHECK 2: Is user currently waiting for human assistance?
+    // CHECK 2: Is user currently waiting for human assistance? - Keep this early
     if (isUserWaitingForHuman(userSession)) {
       console.log(
         `🔕 Usuario ${
@@ -1582,21 +1566,122 @@ async function handleUserMessage(sender, messageText) {
       userSession.data.loopCount = 0;
     }
 
+    // --- CRITICAL REORDERING STARTS HERE ---
+
+    // 1. Handle AWAITING_ACCOUNT_CONFIRMATION state
     if (userSession.state === SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION) {
-  const confirmationResponse = await handleAIAccountConfirmation(messageText, userSession);
-
-  if (confirmationResponse) {
-    await sock.sendMessage(sender, { text: confirmationResponse.message });
-
-    if (confirmationResponse.newState) {
-      userSession.state = confirmationResponse.newState;
-      userSession.data.loopCount = 0;
+      const confirmationResponse = await handleAIAccountConfirmation(
+        messageText,
+        userSession
+      );
+      if (confirmationResponse) {
+        await sock.sendMessage(sender, { text: confirmationResponse.message });
+        if (confirmationResponse.newState) {
+          userSession.state = confirmationResponse.newState;
+          userSession.data.loopCount = 0;
+        }
+        await db.write();
+        return; // IMPORTANT: Stop processing if state-specific handler takes action
+      }
     }
 
-    await db.write();
-    return;
-  }
-}
+    // 2. Handle AWAITING_BENEFICIARY_INFO state
+    if (userSession.state === SESSION_STATES.AWAITING_BENEFICIARY_INFO) {
+      const beneficiaryResponse = await handleAIBeneficiaryInfo(messageText, userSession);
+      if (beneficiaryResponse) {
+        await sock.sendMessage(sender, { text: beneficiaryResponse.message });
+        if (beneficiaryResponse.newState) {
+          userSession.state = beneficiaryResponse.newState;
+          userSession.data.loopCount = 0;
+        }
+        if (beneficiaryResponse.sessionData) {
+          userSession.data = { ...userSession.data, ...beneficiaryResponse.sessionData };
+        }
+        // If human transfer is requested by beneficiary info handler
+        if (beneficiaryResponse.requiresHumanTransfer) {
+          await transferToHumanAssistance(sender, userSession, {
+            needsHuman: true,
+            confidence: 0.9,
+            reason: beneficiaryResponse.intent,
+            urgency: "medium",
+            category: "complex_query",
+            context: "Beneficiary info extraction failed or was unclear"
+          }, messageText);
+        }
+        await db.write();
+        return; // IMPORTANT: Stop processing if state-specific handler takes action
+      }
+    }
+
+    // 3. Handle AWAITING_TRANSFER_TYPE state
+    if (userSession.state === SESSION_STATES.AWAITING_TRANSFER_TYPE) {
+      const transferTypeResponse = handleTransferTypeOriginal(messageText, userSession);
+      if (transferTypeResponse) {
+        await sock.sendMessage(sender, { text: transferTypeResponse.message });
+        if (transferTypeResponse.newState) {
+          userSession.state = transferTypeResponse.newState;
+          userSession.data.loopCount = 0;
+        }
+        if (transferTypeResponse.sessionData) {
+          userSession.data = { ...userSession.data, ...transferTypeResponse.sessionData };
+        }
+        await db.write();
+        return; // IMPORTANT: Stop processing if state-specific handler takes action
+      }
+    }
+
+    // 4. Handle AWAITING_COUNTRY state
+    if (userSession.state === SESSION_STATES.AWAITING_COUNTRY) {
+      const countryResponse = handleCountryInputOriginal(messageText, userSession);
+      if (countryResponse) {
+        await sock.sendMessage(sender, { text: countryResponse.message });
+        if (countryResponse.newState) {
+          userSession.state = countryResponse.newState;
+          userSession.data.loopCount = 0;
+        }
+        if (countryResponse.sessionData) {
+          userSession.data = { ...userSession.data, ...countryResponse.sessionData };
+        }
+        await db.write();
+        return; // IMPORTANT: Stop processing if state-specific handler takes action
+      }
+    }
+
+    // 5. Handle AWAITING_AMOUNT state
+    if (userSession.state === SESSION_STATES.AWAITING_AMOUNT) {
+      const amountResponse = handleAmountInputOriginal(messageText, userSession);
+      if (amountResponse) {
+        await sock.sendMessage(sender, { text: amountResponse.message });
+        if (amountResponse.newState) {
+          userSession.state = amountResponse.newState;
+          userSession.data.loopCount = 0;
+        }
+        if (amountResponse.sessionData) {
+          userSession.data = { ...userSession.data, ...amountResponse.sessionData };
+        }
+        await db.write();
+        return; // IMPORTANT: Stop processing if state-specific handler takes action
+      }
+    }
+
+    // 6. Handle KYC_REQUIRED state
+    if (userSession.state === SESSION_STATES.KYC_REQUIRED) {
+      const kycResponse = handleKYCRequiredOriginal(messageText, userSession);
+      if (kycResponse) {
+        await sock.sendMessage(sender, { text: kycResponse.message });
+        if (kycResponse.newState) {
+          userSession.state = kycResponse.newState;
+          userSession.data.loopCount = 0;
+        }
+        if (kycResponse.sessionData) {
+          userSession.data = { ...userSession.data, ...kycResponse.sessionData };
+        }
+        await db.write();
+        return; // IMPORTANT: Stop processing if state-specific handler takes action
+      }
+    }
+
+    // --- General Intent Detection (only if no specific state handler took action) ---
 
     // ENHANCED: Try direct pattern matching first for common scenarios (existing logic)
     const directResponse = await handleDirectPatterns(messageText, userSession);
@@ -1624,7 +1709,6 @@ async function handleUserMessage(sender, messageText) {
       messageText,
       userSession
     );
-    // debugUserFlow(sender, messageText, userSession, detectedIntent);
 
     if (!detectedIntent) {
       console.log("❌ OpenAI no pudo procesar el mensaje, usando fallback");
@@ -1665,6 +1749,7 @@ async function handleUserMessage(sender, messageText) {
         return; // Stop processing - user transferred to human
       }
     }
+
     // Handle high-confidence intents with AI (existing logic)
     if (detectedIntent.confidence > 0.6) {
       const response = await handleIntelligentIntent(
@@ -1743,7 +1828,7 @@ async function handleUserMessage(sender, messageText) {
       await handleFallbackResponse(sender, messageText, userSession);
     }
   } catch (error) {
-    console.error("❌ Error en handleUserMessage:", error);
+    console.error("❌ Error en handleUser Message:", error);
     try {
       await sock.sendMessage(sender, {
         text: "Disculpa, hubo un error temporal. Un asesor humano te atenderá en breve.",
@@ -1754,7 +1839,12 @@ async function handleUserMessage(sender, messageText) {
   }
 }
 
-// Handle AI-detected intents intelligently
+
+
+
+
+// Inside MultipleFiles/bot.js
+
 async function handleIntelligentIntent(
   detectedIntent,
   userSession,
@@ -1765,9 +1855,16 @@ async function handleIntelligentIntent(
   try {
     switch (intent) {
       case "send_money":
+        // If user explicitly says "send money", assume digital transfer
+        // and clear any lingering physical delivery flags.
+        userSession.data.physicalDelivery = false;
+        userSession.data.deliveryType = "bank_transfer";
         return await handleAISendMoney(entities, userSession, originalMessage);
 
       case "physical_delivery":
+        // Explicitly set physical delivery flags
+        userSession.data.physicalDelivery = true;
+        userSession.data.deliveryType = "physical_dollars";
         return await handlePhysicalDeliveryRequest(
           originalMessage,
           userSession,
@@ -1795,6 +1892,9 @@ async function handleIntelligentIntent(
         return handleAIReceiptSubmission(originalMessage, userSession);
 
       case "cash_delivery":
+        // Treat cash_delivery as physical_delivery
+        userSession.data.physicalDelivery = true;
+        userSession.data.deliveryType = "physical_dollars";
         return await handleAICashDelivery(
           entities,
           userSession,
@@ -1850,7 +1950,9 @@ async function handleIntelligentIntent(
   }
 }
 
-// AI-powered send money handler
+
+// Inside MultipleFiles/bot.js
+
 async function handleAISendMoney(entities, userSession, originalMessage) {
   const amountInfo = intelligentAmountExtraction(originalMessage);
   const countryInfo = intelligentCountryDetection(originalMessage);
@@ -1974,6 +2076,7 @@ async function handleAISendMoney(entities, userSession, originalMessage) {
     newState: SESSION_STATES.AWAITING_COUNTRY,
   };
 }
+
 
 // AI-powered rate check handler
 async function handleAIRateCheck(entities, userSession, originalMessage) {
@@ -2102,10 +2205,34 @@ async function handleAIRateCheck(entities, userSession, originalMessage) {
 // }
 
 // AI-powered beneficiary info handler
+// Inside MultipleFiles/bot.js
+
 async function handleAIBeneficiaryInfo(messageText, userSession) {
-  // Use AI to extract beneficiary information
   try {
-    const extractionPrompt = `Extract beneficiary information from this message and respond with JSON:
+    const isPhysicalDelivery = userSession.data.physicalDelivery;
+
+    let extractionPrompt;
+    if (isPhysicalDelivery) {
+      extractionPrompt = `Extract beneficiary information for PHYSICAL DOLLAR DELIVERY from this message and respond with JSON:
+{
+  "hasName": boolean,
+  "hasCedula": boolean,
+  "hasPhone": boolean,
+  "hasAddress": boolean,
+  "extractedInfo": {
+    "name": "string or null",
+    "cedula": "string or null",
+    "phone": "string or null",
+    "address": "string or null"
+  },
+  "isComplete": boolean,
+  "missingFields": ["array of missing fields: name, cedula, phone, address"]
+}
+
+Message: "${messageText}"`;
+    } else {
+      // Original prompt for bank transfers
+      extractionPrompt = `Extract beneficiary information from this message and respond with JSON:
 {
   "hasName": boolean,
   "hasCedula": boolean,
@@ -2113,15 +2240,17 @@ async function handleAIBeneficiaryInfo(messageText, userSession) {
   "hasAmount": boolean,
   "extractedInfo": {
     "name": "string or null",
-    "cedula": "string or null", 
+    "cedula": "string or null",
     "account": "string or null",
     "amount": "string or null"
   },
   "isComplete": boolean,
-  "missingFields": ["array of missing fields"]
+  "missingFields": ["array of missing fields: name, cedula, account, amount"]
 }
 
 Message: "${messageText}"`;
+    }
+
 
     const completion = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
@@ -2134,46 +2263,74 @@ Message: "${messageText}"`;
     });
 
     const extraction = JSON.parse(completion.choices[0].message.content);
+    console.log("Beneficiary Info Extraction AI Analysis:", extraction);
 
     if (extraction.isComplete) {
+      // Store extracted info in session
+      userSession.data.beneficiaryDetails = extraction.extractedInfo;
+      userSession.data.beneficiaryComplete = true; // Mark as complete
+
       const hasReceipt = userSession.data && userSession.data.receiptReceived;
 
       if (hasReceipt) {
-        return {
-          message:
-            "✅ Perfecto, he recibido toda la información del beneficiario y el comprobante firmado.\n\n📋 Procederemos a validar tu pago y comenzar el proceso de transferencia.\n\n⏱️ Te notificaremos cuando esté listo. Normalmente toma entre 15-30 minutos.\n\n¿Hay algo más en lo que pueda ayudarte?",
-          intent: "beneficiary_complete_with_receipt",
-          newState: SESSION_STATES.INITIAL,
-          sessionData: { beneficiaryInfo: messageText, processComplete: true },
-        };
+        // This path is for when receipt was sent BEFORE beneficiary info
+        // This might be less common, but handles the state.
+        if (isPhysicalDelivery) {
+            const trackingNumber = schedulePhysicalDelivery(userSession, extraction.extractedInfo);
+            return {
+                message: `✅ ¡Perfecto! Comprobante verificado e información del beneficiario completa para entrega física.\n\n🚚 **Entrega Física Programada:**\n📋 Número de seguimiento: **${trackingNumber}**\n⏱️ Tiempo estimado: 24-48 horas\n\n📱 **Próximos pasos:**\n1️⃣ Validaremos tu pago (15-30 min)\n2️⃣ Coordinaremos con el repartidor\n3️⃣ Te enviaremos datos de contacto\n4️⃣ Entrega de dólares físicos\n\n🔔 Te mantendremos informado del progreso.`,
+                intent: "physical_delivery_scheduled",
+                newState: SESSION_STATES.DELIVERY_SCHEDULED, // New state for physical delivery scheduled
+                sessionData: { processComplete: true, deliveryScheduled: true, trackingNumber: trackingNumber },
+            };
+        } else {
+            return {
+                message:
+                    "✅ Perfecto, he recibido toda la información del beneficiario y el comprobante firmado.\n\n📋 Procederemos a validar tu pago y comenzar el proceso de transferencia.\n\n⏱️ Te notificaremos cuando esté listo. Normalmente toma entre 15-30 minutos.\n\n¿Hay algo más en lo que pueda ayudarte?",
+                intent: "beneficiary_complete_with_receipt",
+                newState: SESSION_STATES.INITIAL, // Reset to initial after completion
+                sessionData: { processComplete: true },
+            };
+        }
       } else {
-        return {
-          message:
-            "✅ Excelente, información del beneficiario recibida correctamente.\n\nAhora necesito que envíes el comprobante de pago firmado con:\n✍️ Tu nombre completo + últimos 4 dígitos de tu WhatsApp\n\n📸 Por favor envía la foto del comprobante firmado.",
-          intent: "beneficiary_complete_need_receipt",
-          newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
-          sessionData: {
-            beneficiaryInfo: messageText,
-            beneficiaryComplete: true,
-          },
-        };
+        // This is the more common path: beneficiary info is complete, now ask for receipt
+        if (isPhysicalDelivery) {
+            return {
+                message:
+                    "✅ Excelente, información del beneficiario para entrega física recibida correctamente.\n\nAhora necesito que envíes el comprobante de pago firmado con:\n✍️ Tu nombre completo + últimos 4 dígitos de tu WhatsApp\n\n📸 Por favor envía la foto del comprobante firmado.",
+                intent: "physical_beneficiary_complete_need_receipt",
+                newState: SESSION_STATES.AWAITING_RECEIPT, // New state for awaiting receipt
+            };
+        } else {
+            return {
+                message:
+                    "✅ Excelente, información del beneficiario recibida correctamente.\n\nAhora necesito que envíes el comprobante de pago firmado con:\n✍️ Tu nombre completo + últimos 4 dígitos de tu WhatsApp\n\n📸 Por favor envía la foto del comprobante firmado.",
+                intent: "beneficiary_complete_need_receipt",
+                newState: SESSION_STATES.AWAITING_RECEIPT, // New state for awaiting receipt
+            };
+        }
       }
     } else {
-      let responseMessage =
-        "📋 He recibido tu información, pero necesito que completes algunos datos:\n\n";
+      // Incomplete data, prompt user for missing fields
+      let responseMessage = "📋 He recibido tu información, pero necesito que completes algunos datos:\n\n";
 
       extraction.missingFields.forEach((field, index) => {
-        responseMessage += `${index + 1}️⃣ **${field}**\n`;
+        responseMessage += `${index + 1}️⃣ **${field.charAt(0).toUpperCase() + field.slice(1)}**\n`;
       });
 
-      responseMessage += "\n📌 **Formato requerido:**\n";
-      responseMessage +=
-        "**Nombre y Apellido:** [Nombre completo del beneficiario]\n";
-      responseMessage +=
-        "**Cédula:** [Número de cédula sin puntos ni guiones]\n";
-      responseMessage +=
-        "**Número de Cuenta:** [20 dígitos de la cuenta bancaria]\n";
-      responseMessage += "**Monto a Entregar:** [Cantidad en bolívares]\n\n";
+      if (isPhysicalDelivery) {
+        responseMessage += "\n📌 **Formato requerido para Entrega Física:**\n";
+        responseMessage += "**Nombre y Apellido:** [Nombre completo del beneficiario]\n";
+        responseMessage += "**Cédula:** [Número de cédula sin puntos ni guiones]\n";
+        responseMessage += "**Teléfono de contacto:** [Número de contacto en Venezuela]\n";
+        responseMessage += "**Dirección completa de entrega:** [Dirección completa para entrega]\n\n";
+      } else {
+        responseMessage += "\n📌 **Formato requerido para Transferencia Bancaria:**\n";
+        responseMessage += "**Nombre y Apellido:** [Nombre completo del beneficiario]\n";
+        responseMessage += "**Cédula:** [Número de cédula sin puntos ni guiones]\n";
+        responseMessage += "**Número de Cuenta:** [20 dígitos de la cuenta bancaria]\n";
+        responseMessage += "**Monto a Entregar:** [Cantidad en bolívares]\n\n";
+      }
       responseMessage += "Por favor envía la información completa.";
 
       return {
@@ -2185,9 +2342,15 @@ Message: "${messageText}"`;
     }
   } catch (error) {
     console.error("❌ Error extracting beneficiary info:", error);
-    return null;
+    // Fallback to human assistance if AI extraction fails
+    return {
+      message: "Disculpa, no pude procesar la información del beneficiario. Un asesor te ayudará con esto.",
+      intent: "beneficiary_extraction_error",
+      requiresHumanTransfer: true, // Trigger human transfer
+    };
   }
 }
+
 
 // AI-powered receipt submission handler
 function handleAIReceiptSubmission(messageText, userSession) {
@@ -2303,6 +2466,8 @@ function handleAIReceiptSubmission(messageText, userSession) {
 }
 
 // AI-powered cash delivery handler
+// Inside MultipleFiles/bot.js
+
 async function handleAICashDelivery(entities, userSession, originalMessage) {
   const physicalAnalysis = await detectPhysicalDeliveryWithAI(
     originalMessage,
@@ -2313,12 +2478,19 @@ async function handleAICashDelivery(entities, userSession, originalMessage) {
     physicalAnalysis.wantsPhysicalDelivery &&
     physicalAnalysis.confidence > 0.7
   ) {
+    // Delegate to the unified physical delivery handler
     return await handlePhysicalDeliveryRequest(
       originalMessage,
       userSession,
       physicalAnalysis
     );
   }
+
+  // The rest of the original handleAICashDelivery logic remains if it handles
+  // a different type of "cash delivery" (e.g., cash deposit for bank transfer)
+  // or if the AI's physical delivery detection was low confidence.
+  // Based on your context, "cash delivery" seems to be synonymous with "physical delivery".
+  // So, this part might become redundant if physicalAnalysis is always high confidence.
 
   const amountInfo = intelligentAmountExtraction(originalMessage);
   const countryInfo = intelligentCountryDetection(originalMessage);
@@ -2361,12 +2533,14 @@ async function handleAICashDelivery(entities, userSession, originalMessage) {
 
   return {
     message:
-      "✅ Perfecto, puedes enviar dólares en efectivo a Venezuela. 🔒 Ten en cuenta que este tipo de entrega tiene una comisión del 10% para cubrir la logística de entrega física.\n\n¿Desde qué país estás enviando?",
+      "✅ Perfecto, puedes enviar dólares en efectivo a Venezuela. 🔒 Ten en cuenta que este tipo de entrega tiene una comisión del 10% para cubrir la logística de entrega física en destino.",
     intent: "cash_delivery_generic",
     newState: SESSION_STATES.CASH_DELIVERY,
     sessionData: { deliveryType: "cash" },
   };
 }
+
+
 
 // Extract state changes from AI responses
 async function extractStateFromAIResponse(
@@ -2761,6 +2935,17 @@ function handleAccountConfirmationOriginal(messageText, userSession) {
 function handleTransferTypeOriginal(messageText, userSession) {
   const lower = messageText.toLowerCase().trim();
 
+  // If physical delivery was already confirmed, and user is somehow here,
+  // it means they might be trying to change the type or there's a loop.
+  // For now, we can guide them back or re-confirm.
+  if (userSession.data.physicalDelivery) {
+        return {
+            message: "Ya hemos establecido que deseas una entrega física de dólares. ¿Deseas cambiar el tipo de entrega o continuar con la información del beneficiario?",
+            intent: "physical_delivery_already_set",
+            newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO, // Or a state to re-confirm delivery type
+        };
+    }
+
   if (lower === "1" || lower.includes("transferencia")) {
     return {
       message:
@@ -2787,35 +2972,36 @@ function handleTransferTypeOriginal(messageText, userSession) {
     lower.includes("dólares físicos") ||
     lower.includes("physical")
   ) {
+    // If the user explicitly selects "3" for physical delivery here,
+    // we should ensure the physicalDelivery flag is set and then
+    // delegate to the handlePhysicalDeliveryRequest to continue the flow.
+    userSession.data.physicalDelivery = true;
+    userSession.data.deliveryType = "physical_dollars";
+
     const amount = userSession.data.amount;
     const country = userSession.data.country;
 
+    // If we have amount and country, proceed to calculation
     if (amount && country) {
-      const calculation = calculatePhysicalDeliveryEnhanced(
-        amount,
-        country,
-        false
-      );
-
-      if (calculation.success) {
-        return {
-          message: `💵 **Entrega de Dólares Físicos Seleccionada**\n\n${calculation.message}\n\n📝 **Próximos pasos:**\n1️⃣ Confirma los datos del beneficiario\n2️⃣ Realiza la transferencia\n3️⃣ Coordinaremos la entrega física\n\n¿Deseas continuar?`,
-          intent: "physical_delivery_selected",
-          newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
-          sessionData: {
-            transferType: "physical_delivery",
-            deliveryType: "physical_dollars",
-            calculation: calculation,
-          },
-        };
-      }
+      // Delegate to the main physical delivery handler
+      return handlePhysicalDeliveryRequest(messageText, userSession, {
+        wantsPhysicalDelivery: true,
+        confidence: 1.0,
+        deliveryKeywords: ["físico"],
+        context: "User selected physical delivery option 3"
+      });
     }
 
+    // If amount or country is missing, ask for it via the physical delivery flow
     return {
       message:
         "💵 **Entrega de Dólares Físicos**\n\n🔒 Comisión fija: 10%\n⏱️ Tiempo: 24-48 horas\n🚚 Entrega segura a domicilio\n\nPor favor proporciona el monto y país para calcular el costo exacto.",
       intent: "physical_delivery_info_needed",
-      newState: SESSION_STATES.AWAITING_AMOUNT,
+      newState: SESSION_STATES.AWAITING_AMOUNT, // Or AWAITING_COUNTRY, depending on what's missing
+      sessionData: {
+        physicalDelivery: true,
+        deliveryType: "physical_dollars"
+      }
     };
   } else {
     return {
@@ -2826,6 +3012,8 @@ function handleTransferTypeOriginal(messageText, userSession) {
     };
   }
 }
+
+
 
 // Add new function for physical delivery beneficiary info (continued)
 function handlePhysicalDeliveryBeneficiaryInfo(messageText, userSession) {
