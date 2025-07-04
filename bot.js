@@ -159,7 +159,6 @@ const countryDisplayNames = countriesData.displayNames;
 const SESSION_STATES = sessionStatesData.SESSION_STATES;
 
 
-
 async function detectIntentWithOpenAI(messageText, userSession) {
   try {
     const systemPrompt = `You are an AI assistant for Tecno Inversiones, a money transfer service to Venezuela.
@@ -759,7 +758,6 @@ async function handleDirectPatterns(messageText, userSession) {
 
   return null; // No direct pattern matched
 }
-
 
 
 // ==================== AI-POWERED HUMAN ASSISTANCE MANAGEMENT ====================
@@ -1389,9 +1387,6 @@ function isAgentMessage(sender) {
   return sender === agentJID;
 }
 
-// Inside MultipleFiles/bot.js
-
-// Inside MultipleFiles/bot.js
 
 async function handleAIAccountConfirmation(messageText, userSession) {
   try {
@@ -1432,20 +1427,37 @@ USER RESPONSE: "${messageText}"`;
     console.log("🤖 AI Account Confirmation Analysis:", parsed);
 
     if (parsed.confirmation === "yes") {
-      // Check if physical delivery was already established in the session
-      if (userSession.data.physicalDelivery) {
+      // Determine the next state based on the detected deliveryType
+      const detectedDeliveryType = userSession.data.deliveryType;
+
+      if (detectedDeliveryType === "physical_delivery") {
         return {
           message:
             "¡Perfecto! 🙌 Confirmado que eres el titular de la cuenta y que deseas entrega física.\n\n📝 Ahora, por favor, proporciona la información del beneficiario para la entrega de los dólares físicos:\n\n📌 **Nombre y Apellido del beneficiario**\n📌 **Cédula**\n📌 **Teléfono de contacto**\n📌 **Dirección completa de entrega**",
           intent: "account_confirmed_physical_delivery",
           newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
         };
+      } else if (detectedDeliveryType === "bank_transfer") {
+        return {
+          message:
+            "¡Perfecto! 🙌 Confirmado que eres el titular de la cuenta.\n\n📝 **Instrucciones para Transferencia Bancaria:**\n\n**Paso 1** - Solicita las cuentas bancarias actualizadas aquí.\n\n**Paso 2** - En el concepto de la transferencia, escribe:\n📌 ENTREGAR: Nombre y apellido del destinatario + los últimos 5 dígitos de tu WhatsApp.\n\n**Paso 3** - Después de transferir, envíame:\n1️⃣ Una foto del comprobante\n2️⃣ La información del beneficiario",
+          intent: "account_confirmed_bank_transfer",
+          newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
+        };
+      } else if (detectedDeliveryType === "cash_deposit") {
+        return {
+          message:
+            "¡Perfecto! 🙌 Confirmado que eres el titular de la cuenta.\n\n📝 **Instrucciones para Depósito en Efectivo:**\n\n**Paso 1** - Solicita las cuentas bancarias actualizadas aquí.\n\n**Paso 2** - Debes escribir en la boleta de depósito:\n📌 Nombre y apellido del destinatario + últimos 5 dígitos de tu WhatsApp.\n\n**Paso 3** - Después de depositar, envíame:\n1️⃣ Una foto del comprobante\n2️⃣ La información del beneficiario",
+          intent: "account_confirmed_cash_deposit",
+          newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
+        };
       } else {
-        // Original flow for other transfer types (bank transfer, cash deposit)
+        // Fallback: If deliveryType is not clearly set, ask the user.
+        // This case should ideally be rare if AI detection is working well.
         return {
           message:
             "¡Perfecto! 🙌 Confirmado que eres el titular de la cuenta.\n\n📝 Ahora, ¿cómo prefieres realizar el pago?\n\n1️⃣ **Transferencia bancaria** (Bolívares)\n2️⃣ **Depósito en efectivo** (Bolívares)\n3️⃣ **Entrega física** (Dólares USD - Comisión 10%)\n\nResponde con el número de tu opción preferida.",
-          intent: "account_confirmed",
+          intent: "account_confirmed_awaiting_transfer_type",
           newState: SESSION_STATES.AWAITING_TRANSFER_TYPE,
         };
       }
@@ -1474,11 +1486,6 @@ USER RESPONSE: "${messageText}"`;
     };
   }
 }
-
-
-
-
-// Inside MultipleFiles/bot.js
 
 async function handleUserMessage(sender, messageText) {
   try {
@@ -1587,6 +1594,14 @@ async function handleUserMessage(sender, messageText) {
       detectedIntent.confidence
     );
 
+    // Store auto_transfer_type from AI if detected
+    if (detectedIntent.auto_transfer_type && detectedIntent.auto_transfer_type.detected) {
+        userSession.data.deliveryType = detectedIntent.auto_transfer_type.type;
+        userSession.data.physicalDelivery = (detectedIntent.auto_transfer_type.type === "physical_delivery");
+        console.log(`AI auto-detected transfer type: ${userSession.data.deliveryType}, physicalDelivery: ${userSession.data.physicalDelivery}`);
+    }
+
+
     // CHECK 3: AI-powered human assistance detection (always check this early)
     const humanAssistanceAnalysis = await detectHumanAssistanceWithAI(
       messageText,
@@ -1652,8 +1667,7 @@ async function handleUserMessage(sender, messageText) {
         await db.write();
         handledByState = true;
       }
-    } else if (userSession.state === SESSION_STATES.AWAITING_TRANSFER_TYPE && detectedIntent.intent === "send_money") {
-        // Allow user to select transfer type or re-state intent
+    } else if (userSession.state === SESSION_STATES.AWAITING_TRANSFER_TYPE) { // Removed intent check here to allow handleTransferTypeOriginal to process
         const transferTypeResponse = handleTransferTypeOriginal(messageText, userSession);
         if (transferTypeResponse) {
             await sock.sendMessage(sender, { text: transferTypeResponse.message });
@@ -1811,16 +1825,6 @@ async function handleUserMessage(sender, messageText) {
 }
 
 
-
-
-
-
-
-
-// Inside MultipleFiles/bot.js
-
-// Inside MultipleFiles/bot.js
-
 async function handleIntelligentIntent(
   detectedIntent,
   userSession,
@@ -1829,11 +1833,21 @@ async function handleIntelligentIntent(
   const { intent, entities, confidence } = detectedIntent;
 
   try {
+    // If AI detected a specific transfer type, prioritize it and set session data
+    if (detectedIntent.auto_transfer_type && detectedIntent.auto_transfer_type.detected) {
+        userSession.data.deliveryType = detectedIntent.auto_transfer_type.type;
+        userSession.data.physicalDelivery = (detectedIntent.auto_transfer_type.type === "physical_delivery");
+        console.log(`handleIntelligentIntent: AI auto-detected transfer type: ${userSession.data.deliveryType}, physicalDelivery: ${userSession.data.physicalDelivery}`);
+    }
+
+
     switch (intent) {
       case "send_money":
-        // If AI detects "send_money", explicitly set for bank transfer
-        userSession.data.physicalDelivery = false;
-        userSession.data.deliveryType = "bank_transfer";
+        // If AI detects "send_money", and no specific auto_transfer_type was set, default to bank_transfer
+        if (!userSession.data.deliveryType) {
+            userSession.data.physicalDelivery = false;
+            userSession.data.deliveryType = "bank_transfer";
+        }
         return await handleAISendMoney(entities, userSession, originalMessage);
 
       case "physical_delivery":
@@ -1923,9 +1937,6 @@ async function handleIntelligentIntent(
   }
 }
 
-
-// Inside MultipleFiles/bot.js
-
 async function handleAISendMoney(entities, userSession, originalMessage) {
   // Explicitly clear physicalDelivery flag when send_money intent is handled
   userSession.data.physicalDelivery = false;
@@ -1939,6 +1950,31 @@ async function handleAISendMoney(entities, userSession, originalMessage) {
     countryInfo,
     originalMessage,
   });
+
+  // If the AI detected a specific transfer type, prioritize it
+  if (entities.transfer_type && entities.transfer_type !== "unknown") {
+      userSession.data.deliveryType = entities.transfer_type;
+      if (entities.transfer_type === "physical_delivery") {
+          userSession.data.physicalDelivery = true;
+      }
+  } else {
+      // Fallback to keyword detection if AI didn't explicitly set transfer_type
+      const text = originalMessage.toLowerCase();
+      const physicalKeywords = ["cash", "efectivo", "physical dollars", "dólares físicos", "delivery", "entrega física", "physical", "físico", "en persona", "cash delivery", "entregar efectivo", "dollars at home", "dólares a domicilio", "en mano", "dollars in hand"];
+      const cashDepositKeywords = ["depósito", "deposit", "depositar", "efectivo", "cash deposit", "deposito en efectivo", "depositar efectivo"];
+
+      if (physicalKeywords.some(keyword => text.includes(keyword))) {
+          userSession.data.deliveryType = "physical_delivery";
+          userSession.data.physicalDelivery = true;
+      } else if (cashDepositKeywords.some(keyword => text.includes(keyword))) {
+          userSession.data.deliveryType = "cash_deposit";
+          userSession.data.physicalDelivery = false; // Cash deposit is not physical delivery of dollars
+      } else {
+          userSession.data.deliveryType = "bank_transfer"; // Default
+          userSession.data.physicalDelivery = false;
+      }
+  }
+
 
   // If we have both amount and country with good confidence
   if (
@@ -1995,6 +2031,9 @@ async function handleAISendMoney(entities, userSession, originalMessage) {
         country: country,
         currency: amountInfo.currency || "DOP",
         rateInfo: rateInfo,
+        // Ensure deliveryType and physicalDelivery are carried over
+        deliveryType: userSession.data.deliveryType,
+        physicalDelivery: userSession.data.physicalDelivery
       },
     };
   }
@@ -2016,6 +2055,8 @@ async function handleAISendMoney(entities, userSession, originalMessage) {
         sessionData: {
           country: countryInfo.country,
           suggestedAmount: amountInfo.amount,
+          deliveryType: userSession.data.deliveryType,
+          physicalDelivery: userSession.data.physicalDelivery
         },
       };
     } else {
@@ -2025,7 +2066,11 @@ async function handleAISendMoney(entities, userSession, originalMessage) {
         )} 🌎\n\n💰 ¿Cuál es el monto que deseas enviar? Por favor especifica la moneda (ej: $500 USD, 10000 pesos, etc.)`,
         intent: "country_detected_need_amount",
         newState: SESSION_STATES.AWAITING_AMOUNT,
-        sessionData: { country: countryInfo.country },
+        sessionData: { 
+            country: countryInfo.country,
+            deliveryType: userSession.data.deliveryType,
+            physicalDelivery: userSession.data.physicalDelivery
+        },
       };
     }
   }
@@ -2041,6 +2086,8 @@ async function handleAISendMoney(entities, userSession, originalMessage) {
       sessionData: {
         amount: amountInfo.amount,
         currency: amountInfo.currency,
+        deliveryType: userSession.data.deliveryType,
+        physicalDelivery: userSession.data.physicalDelivery
       },
     };
   }
@@ -2051,6 +2098,10 @@ async function handleAISendMoney(entities, userSession, originalMessage) {
       "¡Perfecto! Te ayudo a enviar dinero a Venezuela. 🇻🇪\n\n¿Desde qué país estás enviando y cuál es el monto aproximado?\n\nEjemplo: 'Desde República Dominicana, 5000 pesos' o 'Desde Perú, $300 USD'",
     intent: "send_money_generic",
     newState: SESSION_STATES.AWAITING_COUNTRY,
+    sessionData: {
+        deliveryType: userSession.data.deliveryType, // Should be bank_transfer by default from detectIntentWithOpenAI
+        physicalDelivery: userSession.data.physicalDelivery // Should be false by default
+    }
   };
 }
 
@@ -2910,16 +2961,14 @@ function handleAccountConfirmationOriginal(messageText, userSession) {
   }
 }
 
-// Inside MultipleFiles/bot.js
-
 function handleTransferTypeOriginal(messageText, userSession) {
   const lower = messageText.toLowerCase().trim();
 
-  // If the user explicitly selects "1" for bank transfer here,
-  // we should ensure the physicalDelivery flag is set and then
-  // delegate to the handlePhysicalDeliveryRequest to continue the flow.
-  if (lower === "1" || lower.includes("transferencia")) {
+  // Check for natural language keywords first
+  if (lower.includes("transferencia") || lower.includes("bank transfer") || lower === "1") {
     // Proceed with bank transfer instructions
+    userSession.data.deliveryType = "bank_transfer"; // Ensure session data is set
+    userSession.data.physicalDelivery = false;
     return {
       message:
         "📝 **Instrucciones para Transferencia Bancaria:**\n\n**Paso 1** - Solicita las cuentas bancarias actualizadas aquí.\n\n**Paso 2** - En el concepto de la transferencia, escribe:\n📌 ENTREGAR: Nombre y apellido del destinatario + los últimos 5 dígitos de tu WhatsApp.\n\n**Paso 3** - Después de transferir, envíame:\n1️⃣ Una foto del comprobante\n2️⃣ La información del beneficiario",
@@ -2927,12 +2976,10 @@ function handleTransferTypeOriginal(messageText, userSession) {
       newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
       sessionData: { transferType: "bank_transfer" },
     };
-  } else if (
-    lower === "2" ||
-    lower.includes("depósito") ||
-    lower.includes("efectivo")
-  ) {
+  } else if (lower.includes("depósito") || lower.includes("deposit") || lower.includes("efectivo") || lower.includes("cash deposit") || lower === "2") {
     // Proceed with cash deposit instructions
+    userSession.data.deliveryType = "cash_deposit"; // Ensure session data is set
+    userSession.data.physicalDelivery = false;
     return {
       message:
         "📝 **Instrucciones para Depósito en Efectivo:**\n\n**Paso 1** - Solicita las cuentas bancarias actualizadas aquí.\n\n**Paso 2** - Debes escribir en la boleta de depósito:\n📌 Nombre y apellido del destinatario + últimos 5 dígitos de tu WhatsApp.\n\n**Paso 3** - Después de depositar, envíame:\n1️⃣ Una foto del comprobante\n2️⃣ La información del beneficiario",
@@ -2940,15 +2987,8 @@ function handleTransferTypeOriginal(messageText, userSession) {
       newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
       sessionData: { transferType: "cash_deposit" },
     };
-  } else if (
-    lower === "3" ||
-    lower.includes("físico") ||
-    lower.includes("dólares físicos") ||
-    lower.includes("physical")
-  ) {
-    // If the user explicitly selects "3" for physical delivery here,
-    // we should ensure the physicalDelivery flag is set and then
-    // delegate to the handlePhysicalDeliveryRequest to continue the flow.
+  } else if (lower.includes("físico") || lower.includes("dólares físicos") || lower.includes("physical delivery") || lower.includes("cash delivery") || lower === "3") {
+    // If the user explicitly selects "3" or uses keywords for physical delivery
     userSession.data.physicalDelivery = true;
     userSession.data.deliveryType = "physical_dollars";
 
@@ -2962,7 +3002,7 @@ function handleTransferTypeOriginal(messageText, userSession) {
         wantsPhysicalDelivery: true,
         confidence: 1.0,
         deliveryKeywords: ["físico"],
-        context: "User  selected physical delivery option 3"
+        context: "User selected physical delivery option"
       });
     }
 
@@ -2978,6 +3018,7 @@ function handleTransferTypeOriginal(messageText, userSession) {
       }
     };
   } else {
+    // If no valid option or keyword is detected, re-prompt
     return {
       message:
         "Por favor selecciona una opción válida:\n\n1️⃣ **Transferencia bancaria** (Bolívares)\n2️⃣ **Depósito en efectivo** (Bolívares)\n3️⃣ **Entrega física** (Dólares USD - Comisión 10%)\n\nResponde con el número de tu opción preferida.",
@@ -2986,9 +3027,6 @@ function handleTransferTypeOriginal(messageText, userSession) {
     };
   }
 }
-
-
-
 
 
 
