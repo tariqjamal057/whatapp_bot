@@ -321,7 +321,7 @@ Generate a natural, helpful response to: "${messageText}"`;
 
     return completion.choices[0].message.content;
   } catch (error) {
-    console.error("❌ Error generating contextual response:", error);
+    console.error("❌ Error generando contextual response:", error);
     return null;
   }
 }
@@ -512,8 +512,6 @@ function intelligentCountryDetection(messageText) {
   return null;
 }
 
-// Inside MultipleFiles/bot.js
-
 async function handleDirectPatterns(messageText, userSession) {
   const text = messageText.toLowerCase().trim();
   const currentState = userSession.state;
@@ -550,11 +548,24 @@ async function handleDirectPatterns(messageText, userSession) {
     text.includes(keyword)
   );
 
+  // Handle new transaction requests
+  if (text.includes("send cash") || text.includes("enviar efectivo")) {
+    // Reset session data for a new transaction
+    userSession.data.amount = null;
+    userSession.data.country = null;
+    userSession.data.deliveryType = null;
+    userSession.data.physicalDelivery = false;
+
+    return {
+      message: "✅ Perfecto, quieres enviar efectivo a Venezuela.\n\n💰 ¿Cuál es el monto que deseas enviar? Por favor especifica la moneda (ej: $500 USD, 10000 pesos, etc.)",
+      newState: SESSION_STATES.AWAITING_AMOUNT,
+      sessionData: { deliveryType: "cash", physicalDelivery: true },
+    };
+  }
+
   // Handle menu selections (1, 2, 3) when awaiting transfer type
   if (currentState === SESSION_STATES.AWAITING_TRANSFER_TYPE) {
-    if (text === "1" || text === "2" || text === "3") {
-      return handleTransferTypeOriginal(messageText, userSession);
-    }
+    return null; // Let handleIntelligentIntent or state-specific handler manage this.
   }
 
   // If digital keyword is detected and we are in INITIAL state,
@@ -564,7 +575,7 @@ async function handleDirectPatterns(messageText, userSession) {
       message:
         "¡Perfecto! 🙌 Te ayudo a enviar dinero a Venezuela.\n\n¿Desde qué país estás enviando y cuál es el monto aproximado?\n\nEjemplo: 'Desde República Dominicana, 5000 pesos' o 'Desde Perú, $300 USD'",
       newState: SESSION_STATES.SEND_MONEY_STARTED,
-      sessionData: { requestType: "send_money" },
+      sessionData: { requestType: "send_money", deliveryType: "bank_transfer", physicalDelivery: false },
     };
   }
 
@@ -581,48 +592,56 @@ async function handleDirectPatterns(messageText, userSession) {
       wantsPhysicalDelivery: true,
       confidence: 1.0, // High confidence as keyword was found
       deliveryKeywords: physicalKeywords.filter((k) => text.includes(k)),
-      context: "User explicitly requested physical delivery in initial message",
+      context: "User  explicitly requested physical delivery in initial message",
     });
   }
 
-  // Handle country + amount in one message
+  // Handle country + amount + transfer type in one message
   const countryInfo = intelligentCountryDetection(messageText);
   const amountInfo = intelligentAmountExtraction(messageText);
+  const detectedIntent = await detectIntentWithOpenAI(messageText, userSession); // Re-run intent detection for comprehensive analysis
 
   if (
     countryInfo &&
     amountInfo &&
     (currentState === SESSION_STATES.SEND_MONEY_STARTED ||
       currentState === SESSION_STATES.INITIAL ||
-      currentState === SESSION_STATES.AWAITING_COUNTRY || // Added for robustness
-      currentState === SESSION_STATES.AWAITING_AMOUNT) // Added for robustness
+      currentState === SESSION_STATES.AWAITING_COUNTRY ||
+      currentState === SESSION_STATES.AWAITING_AMOUNT)
   ) {
     // Store detected info in session data immediately
     userSession.data.country = countryInfo.country;
     userSession.data.amount = amountInfo.amount;
     userSession.data.currency = amountInfo.currency;
 
-    // Check if user wants physical delivery based on context or previous session
-    const wantsPhysical =
-      hasPhysicalKeyword ||
-      userSession.data.physicalDelivery ||
-      userSession.data.deliveryType === "physical_dollars";
+    // Determine transfer type from AI or keywords
+    let transferType = "bank_transfer"; // Default
+    if (detectedIntent.auto_transfer_type && detectedIntent.auto_transfer_type.detected) {
+      transferType = detectedIntent.auto_transfer_type.type;
+    } else if (hasPhysicalKeyword) {
+      transferType = "physical_delivery";
+    } else if (hasDigitalKeyword) {
+      transferType = "bank_transfer";
+    }
 
-    if (wantsPhysical) {
+    userSession.data.deliveryType = transferType;
+    userSession.data.physicalDelivery = (transferType === "physical_delivery");
+
+    if (userSession.data.physicalDelivery) {
       // If physical delivery is intended, delegate to handlePhysicalDeliveryRequest
       return await handlePhysicalDeliveryRequest(messageText, userSession, {
         wantsPhysicalDelivery: true,
         confidence: 1.0,
         deliveryKeywords: [],
-        context: "Combined amount/country with physical intent",
+        context: "Combined amount/country/type with physical intent",
       });
     } else {
       // Regular bank transfer calculation (existing logic)
-      const country = countryInfo.country;
-      let amount = amountInfo.amount;
+      const country = userSession.data.country;
+      let amount = userSession.data.amount;
 
       // Handle currency conversion if needed
-      if (amountInfo.currency === "USD" && country !== "ecuador") {
+      if (userSession.data.currency === "USD" && country !== "ecuador") {
         amount = convertUSDToLocalCurrency(amount, country);
       }
 
@@ -654,6 +673,8 @@ async function handleDirectPatterns(messageText, userSession) {
           country: country,
           currency: amountInfo.currency || "DOP",
           rateInfo: rateInfo,
+          deliveryType: userSession.data.deliveryType, // Ensure delivery type is carried over
+          physicalDelivery: userSession.data.physicalDelivery,
         },
       };
     }
@@ -683,7 +704,7 @@ async function handleDirectPatterns(messageText, userSession) {
         countryInfo.country
       )} 🌎\n\n💰 ¿Cuál es el monto que deseas enviar? Por favor especifica la moneda (ej: $500 USD, 10000 pesos, etc.)`,
       newState: SESSION_STATES.AWAITING_AMOUNT,
-      sessionData: { country: countryInfo.country },
+      sessionData: { country: countryInfo.country, deliveryType: userSession.data.deliveryType, physicalDelivery: userSession.data.physicalDelivery },
     };
   }
 
@@ -749,6 +770,8 @@ async function handleDirectPatterns(messageText, userSession) {
           country: country,
           currency: amountInfo.currency || "DOP",
           rateInfo: rateInfo,
+          deliveryType: userSession.data.deliveryType, // Ensure delivery type is carried over
+          physicalDelivery: userSession.data.physicalDelivery,
         },
       };
     } else {
@@ -762,6 +785,8 @@ async function handleDirectPatterns(messageText, userSession) {
         sessionData: {
           amount: amountInfo.amount,
           currency: amountInfo.currency,
+          deliveryType: userSession.data.deliveryType,
+          physicalDelivery: userSession.data.physicalDelivery,
         },
       };
     }
@@ -769,6 +794,7 @@ async function handleDirectPatterns(messageText, userSession) {
 
   return null; // No direct pattern matched
 }
+
 
 // ==================== AI-POWERED HUMAN ASSISTANCE MANAGEMENT ====================
 
@@ -1652,10 +1678,8 @@ async function handleUserMessage(sender, messageText) {
         );
         break;
       case SESSION_STATES.AWAITING_TRANSFER_TYPE:
-        responseFromState = handleTransferTypeOriginal(
-          messageText,
-          userSession
-        );
+        // Use AI to interpret transfer type selection
+        responseFromState = await handleAITransferTypeSelection(messageText, userSession, detectedIntent);
         break;
       case SESSION_STATES.AWAITING_COUNTRY:
         responseFromState = handleCountryInputOriginal(messageText, userSession);
@@ -1671,11 +1695,8 @@ async function handleUserMessage(sender, messageText) {
         break;
       case SESSION_STATES.AWAITING_RECEIPT:
         // If the message is an image, handle it as a receipt
-        if (msg.message?.imageMessage) {
-          await handleImageMessage(sender, msg.message.imageMessage);
-          return; // Image handled, stop processing text
-        }
-        // Otherwise, try to process text as receipt submission (e.g., "here's the receipt")
+        // NOTE: msg object is not available here, this needs to be handled in the main messages.upsert loop
+        // For now, assume handleAIReceiptSubmission handles text-based receipt submission
         responseFromState = handleAIReceiptSubmission(messageText, userSession);
         break;
     }
@@ -1944,6 +1965,7 @@ async function handleIntelligentIntent(
 
 async function handleAISendMoney(entities, userSession, originalMessage) {
   // Explicitly clear physicalDelivery flag when send_money intent is handled
+  // This is a default, but can be overridden by AI's auto_transfer_type detection
   userSession.data.physicalDelivery = false;
   userSession.data.deliveryType = "bank_transfer"; // Default to bank transfer for send_money
 
@@ -1962,6 +1984,10 @@ async function handleAISendMoney(entities, userSession, originalMessage) {
     if (entities.transfer_type === "physical_delivery") {
       userSession.data.physicalDelivery = true;
     }
+  } else if (detectedIntent.auto_transfer_type && detectedIntent.auto_transfer_type.detected) {
+    // Use auto-detected type if available
+    userSession.data.deliveryType = detectedIntent.auto_transfer_type.type;
+    userSession.data.physicalDelivery = (detectedIntent.auto_transfer_type.type === "physical_delivery");
   } else {
     // Fallback to keyword detection if AI didn't explicitly set transfer_type
     const text = originalMessage.toLowerCase();
@@ -2004,131 +2030,116 @@ async function handleAISendMoney(entities, userSession, originalMessage) {
     }
   }
 
-  // If we have both amount and country with good confidence
-  if (
-    amountInfo &&
-    amountInfo.confidence > 0.6 &&
-    countryInfo &&
-    countryInfo.confidence > 0.8
-  ) {
-    const country = countryInfo.country;
-    let amount = amountInfo.amount;
+  // Update session data with extracted info
+  if (amountInfo && amountInfo.confidence > 0.6) {
+    userSession.data.amount = amountInfo.amount;
+    userSession.data.currency = amountInfo.currency;
+  }
+  if (countryInfo && countryInfo.confidence > 0.8) {
+    userSession.data.country = countryInfo.country;
+  }
 
-    // Fix currency handling for Peru
-    if (country === "peru" && amountInfo.currency === "UNKNOWN") {
-      // Assume Peruvian soles for Peru
-      amountInfo.currency = "PEN";
-    }
+  // Check if we have all necessary information (amount AND country)
+  const finalAmount = userSession.data.amount;
+  const finalCountry = userSession.data.country;
 
-    console.log(`✅ Detectados: ${amount} desde ${country}`);
+  if (finalAmount && finalCountry) {
+    if (userSession.data.physicalDelivery) {
+      // If physical delivery is intended, delegate to handlePhysicalDeliveryRequest
+      return await handlePhysicalDeliveryRequest(originalMessage, userSession, {
+        wantsPhysicalDelivery: true,
+        confidence: 1.0,
+        deliveryKeywords: [],
+        context: "Combined amount/country/type with physical intent",
+      });
+    } else {
+      // Regular bank transfer calculation
+      let amount = finalAmount;
+      let country = finalCountry;
 
-    // Handle currency conversion if needed
-    if (amountInfo.currency === "USD" && country !== "ecuador") {
-      amount = convertUSDToLocalCurrency(amount, country);
-    } else if (amountInfo.currency === "UNKNOWN" && country === "dominican") {
-      // Assume Dominican pesos for Dominican Republic
-      amountInfo.currency = "DOP";
-    }
+      // Handle currency conversion if needed
+      if (userSession.data.currency === "USD" && country !== "ecuador") {
+        amount = convertUSDToLocalCurrency(amount, country);
+      } else if (userSession.data.currency === "UNKNOWN" && country === "dominican") {
+        // Assume Dominican pesos for Dominican Republic if currency is unknown
+        userSession.data.currency = "DOP";
+      }
 
-    const rateInfo = calculateRate(amount, country);
+      const rateInfo = calculateRate(amount, country);
 
-    if (rateInfo.error) {
+      if (rateInfo.error) {
+        return {
+          message:
+            "😓 Lo siento, las tasas de hoy aún no han sido cargadas. Un asesor te ayudará con el cálculo exacto.",
+          intent: "rate_not_available",
+          newState: SESSION_STATES.INITIAL,
+        };
+      }
+
       return {
-        message:
-          "😓 Lo siento, las tasas de hoy aún no han sido cargadas. Un asesor te ayudará con el cálculo exacto.",
-        intent: "rate_not_available",
+        message: `✅ Perfecto, quieres enviar ${formatCurrency(
+          amount,
+          country
+        )} desde ${getCountryDisplayName(
+          country
+        )} a Venezuela.\n\n💰 **Cálculo:**\n📊 Monto: ${formatCurrency(
+          amount,
+          country
+        )}\n📈 Tasa: ${rateInfo.rate} Bs\n💵 El beneficiario recibirá: **${
+          rateInfo.receivedAmount
+        } Bs**\n\n¿Confirmas que eres el titular de la cuenta desde la cual harás la transferencia?`,
+        intent: "send_money_calculated",
+        newState: SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION,
+        sessionData: {
+          amount: amount,
+          country: country,
+          currency: userSession.data.currency,
+          rateInfo: rateInfo,
+          deliveryType: userSession.data.deliveryType,
+          physicalDelivery: userSession.data.physicalDelivery,
+        },
       };
     }
-
-    return {
-      message: `✅ Perfecto, quieres enviar ${formatCurrency(
-        amount,
-        country
-      )} desde ${getCountryDisplayName(
-        country
-      )} a Venezuela.\n\n💰 **Cálculo:**\n📊 Monto: ${formatCurrency(
-        amount,
-        country
-      )}\n📈 Tasa: ${rateInfo.rate} Bs\n💵 El beneficiario recibirá: **${
-        rateInfo.receivedAmount
-      } Bs**\n\n¿Confirmas que eres el titular de la cuenta desde la cual harás la transferencia?`,
-      intent: "send_money_calculated",
-      newState: SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION,
-      sessionData: {
-        amount: amount,
-        country: country,
-        currency: amountInfo.currency || "DOP",
-        rateInfo: rateInfo,
-        // Ensure deliveryType and physicalDelivery are carried over
-        deliveryType: userSession.data.deliveryType,
-        physicalDelivery: userSession.data.physicalDelivery,
-      },
-    };
   }
 
   // If we have country but need to clarify amount
-  if (countryInfo && countryInfo.confidence > 0.8) {
-    // Check if amount was mentioned but unclear
-    if (amountInfo && amountInfo.confidence < 0.6) {
-      return {
-        message: `¡Excelente! Desde ${getCountryDisplayName(
-          countryInfo.country
-        )} 🌎\n\nVeo que mencionaste ${
-          amountInfo.amount
-        }, pero necesito confirmar: ¿son ${
-          amountInfo.amount
-        } pesos dominicanos?\n\n💰 Por favor confirma el monto exacto.`,
-        intent: "country_detected_amount_unclear",
-        newState: SESSION_STATES.AWAITING_AMOUNT,
-        sessionData: {
-          country: countryInfo.country,
-          suggestedAmount: amountInfo.amount,
-          deliveryType: userSession.data.deliveryType,
-          physicalDelivery: userSession.data.physicalDelivery,
-        },
-      };
-    } else {
-      return {
-        message: `¡Excelente! Desde ${getCountryDisplayName(
-          countryInfo.country
-        )} 🌎\n\n💰 ¿Cuál es el monto que deseas enviar? Por favor especifica la moneda (ej: $500 USD, 10000 pesos, etc.)`,
-        intent: "country_detected_need_amount",
-        newState: SESSION_STATES.AWAITING_AMOUNT,
-        sessionData: {
-          country: countryInfo.country,
-          deliveryType: userSession.data.deliveryType,
-          physicalDelivery: userSession.data.physicalDelivery,
-        },
-      };
-    }
+  if (finalCountry && !finalAmount) {
+    return {
+      message: `¡Excelente! Desde ${getCountryDisplayName(
+        finalCountry
+      )} 🌎\n\n💰 ¿Cuál es el monto que deseas enviar? Por favor especifica la moneda (ej: $500 USD, 10000 pesos, etc.)`,
+      intent: "country_detected_need_amount",
+      newState: SESSION_STATES.AWAITING_AMOUNT,
+      sessionData: { country: finalCountry, deliveryType: userSession.data.deliveryType, physicalDelivery: userSession.data.physicalDelivery },
+    };
   }
 
   // If we have amount but no country
-  if (amountInfo && amountInfo.confidence > 0.6) {
+  if (finalAmount && !finalCountry) {
     return {
-      message: `Perfecto, quieres enviar ${amountInfo.amount} ${
-        amountInfo.currency !== "UNKNOWN" ? amountInfo.currency : ""
+      message: `Perfecto, quieres enviar ${finalAmount} ${
+        userSession.data.currency !== "UNKNOWN" ? userSession.data.currency : ""
       }.\n\n🌎 ¿Desde qué país estás enviando?\n\n🇩🇴 República Dominicana\n🇵🇪 Perú\n🇪🇨 Ecuador\n🇨🇴 Colombia\n🇨🇱 Chile`,
       intent: "amount_detected_need_country",
       newState: SESSION_STATES.AWAITING_COUNTRY,
       sessionData: {
-        amount: amountInfo.amount,
-        currency: amountInfo.currency,
+        amount: finalAmount,
+        currency: userSession.data.currency,
         deliveryType: userSession.data.deliveryType,
         physicalDelivery: userSession.data.physicalDelivery,
       },
     };
   }
 
-  // Generic send money response
+  // Generic send money response if neither amount nor country is fully clear
   return {
     message:
       "¡Perfecto! Te ayudo a enviar dinero a Venezuela. 🇻🇪\n\n¿Desde qué país estás enviando y cuál es el monto aproximado?\n\nEjemplo: 'Desde República Dominicana, 5000 pesos' o 'Desde Perú, $300 USD'",
     intent: "send_money_generic",
     newState: SESSION_STATES.AWAITING_COUNTRY,
     sessionData: {
-      deliveryType: userSession.data.deliveryType, // Should be bank_transfer by default from detectIntentWithOpenAI
-      physicalDelivery: userSession.data.physicalDelivery, // Should be false by default
+      deliveryType: userSession.data.deliveryType,
+      physicalDelivery: userSession.data.physicalDelivery,
     },
   };
 }
@@ -2669,6 +2680,8 @@ async function processUserMessageOriginal(sender, messageText, userSession) {
         return handleAccountConfirmationOriginal(messageText, userSession);
 
       case SESSION_STATES.AWAITING_TRANSFER_TYPE:
+        // This state is now primarily handled by AI-driven handleAITransferTypeSelection
+        // but keeping this for robustness if AI fails or for direct calls.
         return handleTransferTypeOriginal(messageText, userSession);
 
       case SESSION_STATES.CASH_DELIVERY:
@@ -2918,17 +2931,107 @@ function handleAccountConfirmationOriginal(messageText, userSession) {
   }
 }
 
-function handleTransferTypeOriginal(messageText, userSession) {
+// New AI-powered function to handle transfer type selection
+async function handleAITransferTypeSelection(messageText, userSession, detectedIntent) {
   const lower = messageText.toLowerCase().trim();
 
-  // Check for natural language keywords first
+  let transferType = null;
+
+  // Prioritize AI's detected transfer_type entity
+  if (detectedIntent.entities && detectedIntent.entities.transfer_type && detectedIntent.entities.transfer_type !== "unknown") {
+    transferType = detectedIntent.entities.transfer_type;
+  } else if (detectedIntent.auto_transfer_type && detectedIntent.auto_transfer_type.detected) {
+    transferType = detectedIntent.auto_transfer_type.type;
+  } else {
+    // Fallback to keyword matching if AI didn't explicitly set it
+    if (
+      lower.includes("transferencia") ||
+      lower.includes("bank transfer") ||
+      lower.includes("transferir") ||
+      lower.includes("enviar") ||
+      lower.includes("online") ||
+      lower.includes("digital") ||
+      lower === "1" ||
+      lower.includes("quiero transferir") ||
+      lower.includes("proceder con transferencia")
+    ) {
+      transferType = "bank_transfer";
+    } else if (
+      lower.includes("depósito") ||
+      lower.includes("deposit") ||
+      lower.includes("efectivo") ||
+      lower.includes("cash deposit") ||
+      lower.includes("depositar") ||
+      lower === "2"
+    ) {
+      transferType = "cash_deposit";
+    } else if (
+      lower.includes("físico") ||
+      lower.includes("dólares físicos") ||
+      lower.includes("physical delivery") ||
+      lower.includes("cash delivery") ||
+      lower.includes("entrega física") ||
+      lower.includes("en mano") ||
+      lower === "3"
+    ) {
+      transferType = "physical_delivery";
+    }
+  }
+
+  if (transferType) {
+    userSession.data.deliveryType = transferType;
+    userSession.data.physicalDelivery = (transferType === "physical_delivery");
+
+    if (transferType === "physical_delivery") {
+      // Delegate to the main physical delivery handler
+      return handlePhysicalDeliveryRequest(messageText, userSession, {
+        wantsPhysicalDelivery: true,
+        confidence: 1.0,
+        deliveryKeywords: [transferType],
+        context: "User selected physical delivery option via AI",
+      });
+    } else if (transferType === "bank_transfer") {
+      return {
+        message:
+          "📝 **Instrucciones para Transferencia Bancaria:**\n\n**Paso 1** - Solicita las cuentas bancarias actualizadas aquí.\n\n**Paso 2** - En el concepto de la transferencia, escribe:\n📌 ENTREGAR: Nombre y apellido del destinatario + los últimos 5 dígitos de tu WhatsApp.\n\n**Paso 3** - Después de transferir, envíame:\n1️⃣ Una foto del comprobante\n2️⃣ La información del beneficiario",
+        intent: "transfer_instructions",
+        newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
+        sessionData: { transferType: "bank_transfer" },
+      };
+    } else if (transferType === "cash_deposit") {
+      return {
+        message:
+          "📝 **Instrucciones para Depósito en Efectivo:**\n\n**Paso 1** - Solicita las cuentas bancarias actualizadas aquí.\n\n**Paso 2** - Debes escribir en la boleta de depósito:\n📌 Nombre y apellido del destinatario + últimos 5 dígitos de tu WhatsApp.\n\n**Paso 3** - Después de depositar, envíame:\n1️⃣ Una foto del comprobante\n2️⃣ La información del beneficiario",
+        intent: "deposit_instructions",
+        newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
+        sessionData: { transferType: "cash_deposit" },
+      };
+    }
+  }
+
+  // If no valid option or keyword is detected, re-prompt
+  return {
+    message:
+      "No pude entender tu preferencia de pago. Por favor, ¿cómo prefieres realizar el pago?\n\n1️⃣ **Transferencia bancaria** (Bolívares)\n2️⃣ **Depósito en efectivo** (Bolívares)\n3️⃣ **Entrega física** (Dólares USD - Comisión 10%)\n\nPuedes decir 'Quiero transferir', 'Hacer un depósito' o 'Necesito dólares físicos'.",
+    intent: "transfer_type_unclear",
+    newState: SESSION_STATES.AWAITING_TRANSFER_TYPE,
+  };
+}
+
+
+function handleTransferTypeOriginal(messageText, userSession) {
+  // This function is now primarily a fallback or for direct calls.
+  // The AI-powered handleAITransferTypeSelection should be preferred.
+  const lower = messageText.toLowerCase().trim();
+
   if (
     lower.includes("transferencia") ||
     lower.includes("bank transfer") ||
-    lower === "1"
+    lower === "1" ||
+    lower.includes("quiero transferir") ||
+    lower.includes("proceder con transferencia")
   ) {
-    // Proceed with bank transfer instructions
-    userSession.data.deliveryType = "bank_transfer"; // Ensure session data is set
+    userSession.data.deliveryType = "bank_transfer";
     userSession.data.physicalDelivery = false;
     return {
       message:
@@ -2942,10 +3045,10 @@ function handleTransferTypeOriginal(messageText, userSession) {
     lower.includes("deposit") ||
     lower.includes("efectivo") ||
     lower.includes("cash deposit") ||
-    lower === "2"
+    lower === "2" ||
+    lower.includes("hacer un depósito")
   ) {
-    // Proceed with cash deposit instructions
-    userSession.data.deliveryType = "cash_deposit"; // Ensure session data is set
+    userSession.data.deliveryType = "cash_deposit";
     userSession.data.physicalDelivery = false;
     return {
       message:
@@ -2959,18 +3062,17 @@ function handleTransferTypeOriginal(messageText, userSession) {
     lower.includes("dólares físicos") ||
     lower.includes("physical delivery") ||
     lower.includes("cash delivery") ||
-    lower === "3"
+    lower === "3" ||
+    lower.includes("necesito dólares físicos") ||
+    lower.includes("entrega física")
   ) {
-    // If the user explicitly selects "3" or uses keywords for physical delivery
     userSession.data.physicalDelivery = true;
     userSession.data.deliveryType = "physical_dollars";
 
     const amount = userSession.data.amount;
     const country = userSession.data.country;
 
-    // If we have amount and country, proceed to calculation
     if (amount && country) {
-      // Delegate to the main physical delivery handler
       return handlePhysicalDeliveryRequest(messageText, userSession, {
         wantsPhysicalDelivery: true,
         confidence: 1.0,
@@ -2979,22 +3081,20 @@ function handleTransferTypeOriginal(messageText, userSession) {
       });
     }
 
-    // If amount or country is missing, ask for it via the physical delivery flow
     return {
       message:
         "💵 **Entrega de Dólares Físicos**\n\n🔒 Comisión fija: 10%\n⏱️ Tiempo: 24-48 horas\n🚚 Entrega segura a domicilio\n\nPor favor proporciona el monto y país para calcular el costo exacto.",
       intent: "physical_delivery_info_needed",
-      newState: SESSION_STATES.AWAITING_AMOUNT, // Or AWAITING_COUNTRY, depending on what's missing
+      newState: SESSION_STATES.AWAITING_AMOUNT,
       sessionData: {
         physicalDelivery: true,
         deliveryType: "physical_dollars",
       },
     };
   } else {
-    // If no valid option or keyword is detected, re-prompt
     return {
       message:
-        "Por favor selecciona una opción válida:\n\n1️⃣ **Transferencia bancaria** (Bolívares)\n2️⃣ **Depósito en efectivo** (Bolívares)\n3️⃣ **Entrega física** (Dólares USD - Comisión 10%)\n\nResponde con el número de tu opción preferida.",
+        "Por favor selecciona una opción válida:\n\n1️⃣ **Transferencia bancaria** (Bolívares)\n2️⃣ **Depósito en efectivo** (Bolívares)\n3️⃣ **Entrega física** (Dólares USD - Comisión 10%)\n\nResponde con el número de tu opción preferida o describe tu preferencia.",
       intent: "transfer_type_unclear",
       newState: SESSION_STATES.AWAITING_TRANSFER_TYPE,
     };
@@ -3382,9 +3482,12 @@ function handleContinueResponse(messageText, userSession) {
     isContinue &&
     userSession.state === SESSION_STATES.AWAITING_TRANSFER_TYPE
   ) {
+    // If user says continue at AWAITING_TRANSFER_TYPE, assume bank transfer as default
+    userSession.data.deliveryType = "bank_transfer";
+    userSession.data.physicalDelivery = false;
     return {
       message:
-        "📝 **Instrucciones para continuar:**\n\n**Paso 1** - Solicita las cuentas bancarias actualizadas aquí.\n\n**Paso 2** - En el concepto de la transferencia, escribe:\n📌 ENTREGAR: Nombre y apellido del destinatario + los últimos 5 dígitos de tu WhatsApp.\n\n**Paso 3** - Después de transferir, envíame:\n1️⃣ Una foto del comprobante firmado\n2️⃣ La información del beneficiario",
+        "📝 **Instrucciones para continuar con Transferencia Bancaria:**\n\n**Paso 1** - Solicita las cuentas bancarias actualizadas aquí.\n\n**Paso 2** - En el concepto de la transferencia, escribe:\n📌 ENTREGAR: Nombre y apellido del destinatario + los últimos 5 dígitos de tu WhatsApp.\n\n**Paso 3** - Después de transferir, envíame:\n1️⃣ Una foto del comprobante firmado\n2️⃣ La información del beneficiario",
       intent: "continue_process",
       newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
       sessionData: { transferType: "bank_transfer" },
@@ -4739,7 +4842,7 @@ function checkAndReloadRates() {
   if (dailyRates.date !== today) {
     console.log(
       `🔄 Detectado cambio de fecha. Recargando tasas para ${today}...`
-    );
+      );
     try {
       createTodayRateFile();
       dailyRates = loadDailyRates();
@@ -4819,6 +4922,7 @@ if (typeof module !== "undefined" && module.exports) {
     handleAIBeneficiaryInfo,
     handleAIReceiptSubmission,
     handleAICashDelivery,
+    handleAITransferTypeSelection, // New export
 
     // Utility functions
     // detectEmotionalState, // This is now part of detectIntentWithOpenAI's output
