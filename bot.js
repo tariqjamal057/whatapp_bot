@@ -158,6 +158,15 @@ const countries = countriesData.countries;
 const countryDisplayNames = countriesData.displayNames;
 const SESSION_STATES = sessionStatesData.SESSION_STATES;
 
+// Function to reset user session
+function resetUserSession(sender) {
+  db.data.userSessions[sender] = {
+    state: SESSION_STATES.INITIAL,
+    data: {},
+    lastActivity: new Date().toISOString(),
+  };
+  console.log(`🔄 Sesión de ${sender} reiniciada.`);
+}
 
 async function detectIntentWithOpenAI(messageText, userSession) {
   try {
@@ -195,6 +204,7 @@ INTENTS:
 - account_confirmation: confirming account ownership
 - beneficiary_info: providing recipient details
 - receipt_submission: sending payment proof
+- reset_session: wants to restart the conversation
 
 AUTOMATIC TRANSFER TYPE DETECTION:
 1. PHYSICAL DELIVERY keywords: "cash", "efectivo", "physical dollars", "dólares físicos", "delivery", "entrega física", "physical", "físico", "en persona", "cash delivery", "entregar efectivo", "dollars at home", "dólares a domicilio", "en mano", "dollars in hand"
@@ -245,13 +255,11 @@ USER MESSAGE: "${messageText}"`;
         detected: false,
         type: "bank_transfer",
         keywords: [],
-        confidence: 0.0
-      }
+        confidence: 0.0,
+      },
     };
   }
 }
-
-
 
 // Generate Contextual AI Response
 async function generateContextualResponse(
@@ -504,7 +512,6 @@ function intelligentCountryDetection(messageText) {
   return null;
 }
 
-
 // Inside MultipleFiles/bot.js
 
 async function handleDirectPatterns(messageText, userSession) {
@@ -554,7 +561,8 @@ async function handleDirectPatterns(messageText, userSession) {
   // directly proceed to handle digital transfer.
   if (hasDigitalKeyword && currentState === SESSION_STATES.INITIAL) {
     return {
-      message: "¡Perfecto! 🙌 Te ayudo a enviar dinero a Venezuela.\n\n¿Desde qué país estás enviando y cuál es el monto aproximado?\n\nEjemplo: 'Desde República Dominicana, 5000 pesos' o 'Desde Perú, $300 USD'",
+      message:
+        "¡Perfecto! 🙌 Te ayudo a enviar dinero a Venezuela.\n\n¿Desde qué país estás enviando y cuál es el monto aproximado?\n\nEjemplo: 'Desde República Dominicana, 5000 pesos' o 'Desde Perú, $300 USD'",
       newState: SESSION_STATES.SEND_MONEY_STARTED,
       sessionData: { requestType: "send_money" },
     };
@@ -572,8 +580,8 @@ async function handleDirectPatterns(messageText, userSession) {
     return await handlePhysicalDeliveryRequest(messageText, userSession, {
       wantsPhysicalDelivery: true,
       confidence: 1.0, // High confidence as keyword was found
-      deliveryKeywords: physicalKeywords.filter(k => text.includes(k)),
-      context: "User  explicitly requested physical delivery in initial message"
+      deliveryKeywords: physicalKeywords.filter((k) => text.includes(k)),
+      context: "User explicitly requested physical delivery in initial message",
     });
   }
 
@@ -606,7 +614,7 @@ async function handleDirectPatterns(messageText, userSession) {
         wantsPhysicalDelivery: true,
         confidence: 1.0,
         deliveryKeywords: [],
-        context: "Combined amount/country with physical intent"
+        context: "Combined amount/country with physical intent",
       });
     } else {
       // Regular bank transfer calculation (existing logic)
@@ -662,12 +670,12 @@ async function handleDirectPatterns(messageText, userSession) {
 
     // If physical delivery is already set, delegate to handlePhysicalDeliveryRequest
     if (userSession.data.physicalDelivery) {
-        return await handlePhysicalDeliveryRequest(messageText, userSession, {
-            wantsPhysicalDelivery: true,
-            confidence: 1.0,
-            deliveryKeywords: [],
-            context: "Country provided for existing physical intent"
-        });
+      return await handlePhysicalDeliveryRequest(messageText, userSession, {
+        wantsPhysicalDelivery: true,
+        confidence: 1.0,
+        deliveryKeywords: [],
+        context: "Country provided for existing physical intent",
+      });
     }
 
     return {
@@ -692,15 +700,17 @@ async function handleDirectPatterns(messageText, userSession) {
 
     const country = userSession.data.country; // Get country from session
 
-    if (country) { // If country is now available from session
+    if (country) {
+      // If country is now available from session
       // If physical delivery is already set, delegate to handlePhysicalDeliveryRequest
       if (userSession.data.physicalDelivery) {
-          return await handlePhysicalDeliveryRequest(messageText, userSession, {
-              wantsPhysicalDelivery: true,
-              confidence: 1.0,
-              deliveryKeywords: [],
-              context: "Amount provided for existing physical intent with country in session"
-          });
+        return await handlePhysicalDeliveryRequest(messageText, userSession, {
+          wantsPhysicalDelivery: true,
+          confidence: 1.0,
+          deliveryKeywords: [],
+          context:
+            "Amount provided for existing physical intent with country in session",
+        });
       }
 
       // Existing bank transfer logic if not physical delivery
@@ -741,24 +751,24 @@ async function handleDirectPatterns(messageText, userSession) {
           rateInfo: rateInfo,
         },
       };
-    } else { // If country is still missing after amount is provided
-        return {
-            message: `Perfecto, quieres enviar ${amountInfo.amount} ${
-                amountInfo.currency !== "UNKNOWN" ? amountInfo.currency : ""
-            }.\n\n🌎 ¿Desde qué país estás enviando?\n\n🇩🇴 República Dominicana\n🇵🇪 Perú\n🇪🇨 Ecuador\n🇨🇴 Colombia\n🇨🇱 Chile`,
-            intent: "amount_detected_need_country",
-            newState: SESSION_STATES.AWAITING_COUNTRY,
-            sessionData: {
-                amount: amountInfo.amount,
-                currency: amountInfo.currency,
-            },
-        };
+    } else {
+      // If country is still missing after amount is provided
+      return {
+        message: `Perfecto, quieres enviar ${amountInfo.amount} ${
+          amountInfo.currency !== "UNKNOWN" ? amountInfo.currency : ""
+        }.\n\n🌎 ¿Desde qué país estás enviando?\n\n🇩🇴 República Dominicana\n🇵🇪 Perú\n🇪🇨 Ecuador\n🇨🇴 Colombia\n🇨🇱 Chile`,
+        intent: "amount_detected_need_country",
+        newState: SESSION_STATES.AWAITING_COUNTRY,
+        sessionData: {
+          amount: amountInfo.amount,
+          currency: amountInfo.currency,
+        },
+      };
     }
   }
 
   return null; // No direct pattern matched
 }
-
 
 // ==================== AI-POWERED HUMAN ASSISTANCE MANAGEMENT ====================
 
@@ -1232,8 +1242,6 @@ function getUsersWaitingForHuman() {
 
 // Inside MultipleFiles/bot.js
 
-// Inside MultipleFiles/bot.js
-
 async function handlePhysicalDeliveryRequest(
   messageText,
   userSession,
@@ -1247,7 +1255,7 @@ async function handlePhysicalDeliveryRequest(
     console.log("💵 Procesando solicitud de entrega física:", {
       amountInfo,
       countryInfo,
-      userSessionData: userSession.data // Debugging: see what's in session
+      userSessionData: userSession.data, // Debugging: see what's in session
     });
 
     // Update session data with newly extracted info if available
@@ -1377,8 +1385,6 @@ async function handlePhysicalDeliveryRequest(
   }
 }
 
-
-
 function isAgentMessage(sender) {
   const rawNumber = process.env.WHATSAPP_NUMBER || "";
   const cleanedNumber = rawNumber.replace(/\D/g, ""); // Removes +, spaces, dashes
@@ -1386,7 +1392,6 @@ function isAgentMessage(sender) {
 
   return sender === agentJID;
 }
-
 
 async function handleAIAccountConfirmation(messageText, userSession) {
   try {
@@ -1400,16 +1405,6 @@ Return a JSON like this:
   "confidence": 0.0-1.0,
   "explanation": "brief reason for decision"
 }
-
-Examples of confirmation:
-- "Yes, it's my account"
-- "I’m the owner"
-- "Yes I will use my account"
-
-Examples of denial:
-- "No, it's my friend’s account"
-- "Someone else will send it"
-- "It's not mine"
 
 USER RESPONSE: "${messageText}"`;
 
@@ -1426,52 +1421,46 @@ USER RESPONSE: "${messageText}"`;
     const parsed = JSON.parse(completion.choices[0].message.content.trim());
     console.log("🤖 AI Account Confirmation Analysis:", parsed);
 
+    const userName = userSession.data.userName || "Usuario"; // Default to "Usuario" if name is not set
+    const amount = userSession.data.amount || "un monto"; // Default to "un monto" if amount is not set
+
     if (parsed.confirmation === "yes") {
-      // Determine the next state based on the detected deliveryType
       const detectedDeliveryType = userSession.data.deliveryType;
 
-      if (detectedDeliveryType === "physical_delivery") {
+      if (detectedDeliveryType === "physical_dollars") {
         return {
-          message:
-            "¡Perfecto! 🙌 Confirmado que eres el titular de la cuenta y que deseas entrega física.\n\n📝 Ahora, por favor, proporciona la información del beneficiario para la entrega de los dólares físicos:\n\n📌 **Nombre y Apellido del beneficiario**\n📌 **Cédula**\n📌 **Teléfono de contacto**\n📌 **Dirección completa de entrega**",
+          message: `¡Perfecto, ${userName}! 🙌 Confirmado que eres el titular de la cuenta y que deseas entrega física.\n\n📝 Ahora, por favor, proporciona la información del beneficiario para la entrega de los dólares físicos:\n\n📌 **Nombre y Apellido del beneficiario**\n📌 **Cédula**\n📌 **Teléfono de contacto**\n📌 **Dirección completa de entrega**`,
           intent: "account_confirmed_physical_delivery",
           newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
         };
       } else if (detectedDeliveryType === "bank_transfer") {
         return {
-          message:
-            "¡Perfecto! 🙌 Confirmado que eres el titular de la cuenta.\n\n📝 **Instrucciones para Transferencia Bancaria:**\n\n**Paso 1** - Solicita las cuentas bancarias actualizadas aquí.\n\n**Paso 2** - En el concepto de la transferencia, escribe:\n📌 ENTREGAR: Nombre y apellido del destinatario + los últimos 5 dígitos de tu WhatsApp.\n\n**Paso 3** - Después de transferir, envíame:\n1️⃣ Una foto del comprobante\n2️⃣ La información del beneficiario",
+          message: `¡Perfecto, ${userName}! 🙌 Confirmado que eres el titular de la cuenta.\n\n💰 Monto a transferir: RD$${amount}.\n\n📝 **Instrucciones para Transferencia Bancaria:**\n\n**Paso 1** - Solicita las cuentas bancarias actualizadas aquí.\n\n**Paso 2** - En el concepto de la transferencia, escribe:\n📌 ENTREGAR: Nombre y apellido del destinatario + los últimos 5 dígitos de tu WhatsApp.\n\n**Paso 3** - Después de transferir, envíame:\n1️⃣ Una foto del comprobante\n2️⃣ La información del beneficiario en este formato:\n   *️⃣ **Nombre y Apellido del beneficiario**\n   *️⃣ **Cédula del beneficiario**\n   *️⃣ **Número de Cuenta bancaria del beneficiario**\n   *️⃣ **Monto exacto a entregar en Bolívares**\n\n¡Gracias por tu colaboración! 🌟`,
           intent: "account_confirmed_bank_transfer",
           newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
         };
       } else if (detectedDeliveryType === "cash_deposit") {
         return {
-          message:
-            "¡Perfecto! 🙌 Confirmado que eres el titular de la cuenta.\n\n📝 **Instrucciones para Depósito en Efectivo:**\n\n**Paso 1** - Solicita las cuentas bancarias actualizadas aquí.\n\n**Paso 2** - Debes escribir en la boleta de depósito:\n📌 Nombre y apellido del destinatario + últimos 5 dígitos de tu WhatsApp.\n\n**Paso 3** - Después de depositar, envíame:\n1️⃣ Una foto del comprobante\n2️⃣ La información del beneficiario",
+          message: `¡Perfecto, ${userName}! 🙌 Confirmado que eres el titular de la cuenta.\n\n📝 **Instrucciones para Depósito en Efectivo:**\n\n**Paso 1** - Solicita las cuentas bancarias actualizadas aquí.\n\n**Paso 2** - Debes escribir en la boleta de depósito:\n📌 Nombre y apellido del destinatario + últimos 5 dígitos de tu WhatsApp.\n\n**Paso 3** - Después de depositar, envíame:\n1️⃣ Una foto del comprobante\n2️⃣ La información del beneficiario`,
           intent: "account_confirmed_cash_deposit",
           newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
         };
       } else {
-        // Fallback: If deliveryType is not clearly set, ask the user.
-        // This case should ideally be rare if AI detection is working well.
         return {
-          message:
-            "¡Perfecto! 🙌 Confirmado que eres el titular de la cuenta.\n\n📝 Ahora, ¿cómo prefieres realizar el pago?\n\n1️⃣ **Transferencia bancaria** (Bolívares)\n2️⃣ **Depósito en efectivo** (Bolívares)\n3️⃣ **Entrega física** (Dólares USD - Comisión 10%)\n\nResponde con el número de tu opción preferida.",
+          message: `¡Perfecto, ${userName}! 🙌 Confirmado que eres el titular de la cuenta.\n\n📝 Ahora, ¿cómo prefieres realizar el pago?\n\n1️⃣ **Transferencia bancaria** (Bolívares)\n2️⃣ **Depósito en efectivo** (Bolívares)\n3️⃣ **Entrega física** (Dólares USD - Comisión 10%)\n\nResponde con el número de tu opción preferida.`,
           intent: "account_confirmed_awaiting_transfer_type",
           newState: SESSION_STATES.AWAITING_TRANSFER_TYPE,
         };
       }
     } else if (parsed.confirmation === "no") {
       return {
-        message:
-          "⚠️ Por razones de seguridad, solo aceptamos pagos desde cuentas a nombre del cliente que nos contacta.\n\n✅ Es indispensable que seas el titular de la cuenta o que el titular se comunique directamente con nosotros.\n\n¿Tienes una cuenta personal desde la cual puedas hacer la transferencia?",
+        message: `⚠️ Por razones de seguridad, solo aceptamos pagos desde cuentas a nombre del cliente que nos contacta. Esto es por razones de seguridad.\n\n¿Tienes una cuenta personal desde la cual puedas hacer la transferencia?`,
         intent: "account_not_confirmed",
         newState: SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION,
       };
     } else {
       return {
-        message:
-          "No estoy seguro de tu respuesta. Por favor, ¿podrías confirmar si eres el titular de la cuenta con un 'Sí' o un 'No'?",
+        message: `No estoy seguro de tu respuesta, ${userName}. Por favor, ¿podrías confirmar si eres el titular de la cuenta con un 'Sí' o un 'No'?`,
         intent: "account_confirmation_unclear",
         newState: SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION,
       };
@@ -1479,13 +1468,14 @@ USER RESPONSE: "${messageText}"`;
   } catch (error) {
     console.error("❌ Error in AI account confirmation:", error);
     return {
-      message:
-        "Disculpa, no entendí tu respuesta. ¿Eres el titular de la cuenta? Responde con 'Sí' o 'No'.",
+      message: "Disculpa, no entendí tu respuesta. ¿Eres el titular de la cuenta? Responde con 'Sí' o 'No'.",
       intent: "account_confirmation_error",
       newState: SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION,
     };
   }
 }
+
+
 
 async function handleUserMessage(sender, messageText) {
   try {
@@ -1502,6 +1492,16 @@ async function handleUserMessage(sender, messageText) {
 
     const userSession = db.data.userSessions[sender];
     userSession.lastActivity = new Date().toISOString();
+
+    // Check for reset command
+    if (messageText.toLowerCase().trim() === "reset") {
+      resetUserSession(sender);
+      await sock.sendMessage(sender, {
+        text: "🔄 Tu sesión ha sido reiniciada. ¿En qué puedo ayudarte hoy?",
+      });
+      await db.write();
+      return;
+    }
 
     // Check for continue responses first (existing logic) - Keep this early
     const continueResponse = handleContinueResponse(messageText, userSession);
@@ -1595,12 +1595,17 @@ async function handleUserMessage(sender, messageText) {
     );
 
     // Store auto_transfer_type from AI if detected
-    if (detectedIntent.auto_transfer_type && detectedIntent.auto_transfer_type.detected) {
-        userSession.data.deliveryType = detectedIntent.auto_transfer_type.type;
-        userSession.data.physicalDelivery = (detectedIntent.auto_transfer_type.type === "physical_delivery");
-        console.log(`AI auto-detected transfer type: ${userSession.data.deliveryType}, physicalDelivery: ${userSession.data.physicalDelivery}`);
+    if (
+      detectedIntent.auto_transfer_type &&
+      detectedIntent.auto_transfer_type.detected
+    ) {
+      userSession.data.deliveryType = detectedIntent.auto_transfer_type.type;
+      userSession.data.physicalDelivery =
+        detectedIntent.auto_transfer_type.type === "physical_delivery";
+      console.log(
+        `AI auto-detected transfer type: ${userSession.data.deliveryType}, physicalDelivery: ${userSession.data.physicalDelivery}`
+      );
     }
-
 
     // CHECK 3: AI-powered human assistance detection (always check this early)
     const humanAssistanceAnalysis = await detectHumanAssistanceWithAI(
@@ -1630,89 +1635,81 @@ async function handleUserMessage(sender, messageText) {
       }
     }
 
-    // --- STATE-SPECIFIC HANDLING (Conditional based on AI intent) ---
-    // Only call state-specific handlers if the AI's detected intent matches the expected state.
-    // This prevents the bot from getting stuck or misinterpreting input.
+    // --- STATE-SPECIFIC HANDLING (Prioritize current session state) ---
+    let responseFromState = null;
 
-    let handledByState = false;
-
-    if (userSession.state === SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION && detectedIntent.intent === "account_confirmation") {
-      const confirmationResponse = await handleAIAccountConfirmation(messageText, userSession);
-      if (confirmationResponse) {
-        await sock.sendMessage(sender, { text: confirmationResponse.message });
-        if (confirmationResponse.newState) {
-          userSession.state = confirmationResponse.newState;
-          userSession.data.loopCount = 0;
+    switch (userSession.state) {
+      case SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION:
+        responseFromState = await handleAIAccountConfirmation(
+          messageText,
+          userSession
+        );
+        break;
+      case SESSION_STATES.AWAITING_BENEFICIARY_INFO:
+        responseFromState = await handleAIBeneficiaryInfo(
+          messageText,
+          userSession
+        );
+        break;
+      case SESSION_STATES.AWAITING_TRANSFER_TYPE:
+        responseFromState = handleTransferTypeOriginal(
+          messageText,
+          userSession
+        );
+        break;
+      case SESSION_STATES.AWAITING_COUNTRY:
+        responseFromState = handleCountryInputOriginal(messageText, userSession);
+        break;
+      case SESSION_STATES.AWAITING_AMOUNT:
+        responseFromState = handleAmountInputOriginal(messageText, userSession);
+        break;
+      case SESSION_STATES.KYC_REQUIRED:
+        responseFromState = handleKYCRequiredOriginal(messageText, userSession);
+        break;
+      case SESSION_STATES.CASH_DELIVERY: // This state is for physical delivery flow
+        responseFromState = handleCashDeliveryOriginal(messageText, userSession);
+        break;
+      case SESSION_STATES.AWAITING_RECEIPT:
+        // If the message is an image, handle it as a receipt
+        if (msg.message?.imageMessage) {
+          await handleImageMessage(sender, msg.message.imageMessage);
+          return; // Image handled, stop processing text
         }
-        await db.write();
-        handledByState = true;
-      }
-    } else if (userSession.state === SESSION_STATES.AWAITING_BENEFICIARY_INFO && detectedIntent.intent === "beneficiary_info") {
-      const beneficiaryResponse = await handleAIBeneficiaryInfo(messageText, userSession);
-      if (beneficiaryResponse) {
-        await sock.sendMessage(sender, { text: beneficiaryResponse.message });
-        if (beneficiaryResponse.newState) {
-          userSession.state = beneficiaryResponse.newState;
-          userSession.data.loopCount = 0;
-        }
-        if (beneficiaryResponse.sessionData) {
-          userSession.data = { ...userSession.data, ...beneficiaryResponse.sessionData };
-        }
-        if (beneficiaryResponse.requiresHumanTransfer) {
-          await transferToHumanAssistance(sender, userSession, {
-            needsHuman: true, confidence: 0.9, reason: beneficiaryResponse.intent,
-            urgency: "medium", category: "complex_query", context: "Beneficiary info extraction failed or was unclear"
-          }, messageText);
-        }
-        await db.write();
-        handledByState = true;
-      }
-    } else if (userSession.state === SESSION_STATES.AWAITING_TRANSFER_TYPE) { // Removed intent check here to allow handleTransferTypeOriginal to process
-        const transferTypeResponse = handleTransferTypeOriginal(messageText, userSession);
-        if (transferTypeResponse) {
-            await sock.sendMessage(sender, { text: transferTypeResponse.message });
-            if (transferTypeResponse.newState) {
-                userSession.state = transferTypeResponse.newState;
-                userSession.data.loopCount = 0;
-            }
-            if (transferTypeResponse.sessionData) {
-                userSession.data = { ...userSession.data, ...transferTypeResponse.sessionData };
-            }
-            await db.write();
-            handledByState = true;
-        }
-    } else if (userSession.state === SESSION_STATES.AWAITING_COUNTRY && detectedIntent.intent === "send_money") {
-        const countryResponse = handleCountryInputOriginal(messageText, userSession);
-        if (countryResponse) {
-            await sock.sendMessage(sender, { text: countryResponse.message });
-            if (countryResponse.newState) {
-                userSession.state = countryResponse.newState;
-                userSession.data.loopCount = 0;
-            }
-            if (countryResponse.sessionData) {
-                userSession.data = { ...userSession.data, ...countryResponse.sessionData };
-            }
-            await db.write();
-            handledByState = true;
-        }
-    } else if (userSession.state === SESSION_STATES.AWAITING_AMOUNT && detectedIntent.intent === "send_money") {
-        const amountResponse = handleAmountInputOriginal(messageText, userSession);
-        if (amountResponse) {
-            await sock.sendMessage(sender, { text: amountResponse.message });
-            if (amountResponse.newState) {
-                userSession.state = amountResponse.newState;
-                userSession.data.loopCount = 0;
-            }
-            if (amountResponse.sessionData) {
-                userSession.data = { ...userSession.data, ...amountResponse.sessionData };
-            }
-            await db.write();
-            handledByState = true;
-        }
+        // Otherwise, try to process text as receipt submission (e.g., "here's the receipt")
+        responseFromState = handleAIReceiptSubmission(messageText, userSession);
+        break;
     }
 
-    if (handledByState) {
-        return; // If a state-specific handler took action, we're done.
+    if (responseFromState) {
+      await sock.sendMessage(sender, { text: responseFromState.message });
+      if (responseFromState.newState) {
+        userSession.state = responseFromState.newState;
+        userSession.data.loopCount = 0;
+      }
+      if (responseFromState.sessionData) {
+        userSession.data = {
+          ...userSession.data,
+          ...responseFromState.sessionData,
+        };
+      }
+      if (responseFromState.requiresHumanTransfer) {
+        // Handle human transfer from state handler
+        await transferToHumanAssistance(
+          sender,
+          userSession,
+          {
+            needsHuman: true,
+            confidence: 0.9,
+            reason: responseFromState.intent,
+            urgency: "medium",
+            category: "complex_query",
+            context: "State handler requested human transfer",
+          },
+          messageText
+        );
+      }
+      await db.write();
+      return; // Crucial: Stop processing if state-specific handler took action
     }
 
     // --- GENERAL INTENT HANDLING (if not handled by specific state) ---
@@ -1725,64 +1722,67 @@ async function handleUserMessage(sender, messageText) {
       await sock.sendMessage(sender, { text: directResponse.message });
       if (directResponse.newState) {
         userSession.state = directResponse.newState;
-        userSession.data.loopCount = 0; // Reset loop count on state change
+        userSession.data.loopCount = 0;
       }
       if (directResponse.sessionData) {
-        userSession.data = { ...userSession.data, ...directResponse.sessionData };
+        userSession.data = {
+          ...userSession.data,
+          ...directResponse.sessionData,
+        };
       }
       await db.write();
-      return;
+      return; // Crucial: Stop processing if direct pattern handled it
     }
 
     // Then, use the AI's detected intent to route to the appropriate intelligent handler
-    if (detectedIntent.confidence > 0.6) { // Only proceed if AI is reasonably confident
-      const response = await handleIntelligentIntent(
+    if (detectedIntent.confidence > 0.6) {
+      const intelligentResponse = await handleIntelligentIntent(
         detectedIntent,
         userSession,
         messageText
       );
-
-      if (response) {
-        await sock.sendMessage(sender, { text: response.message });
-
-        // Update session state
-        if (response.newState) {
-          userSession.state = response.newState;
-          userSession.data.loopCount = 0; // Reset loop count on state change
+      if (intelligentResponse) {
+        await sock.sendMessage(sender, { text: intelligentResponse.message });
+        if (intelligentResponse.newState) {
+          userSession.state = intelligentResponse.newState;
+          userSession.data.loopCount = 0;
         }
-        if (response.sessionData) {
-          userSession.data = { ...userSession.data, ...response.sessionData };
+        if (intelligentResponse.sessionData) {
+          userSession.data = {
+            ...userSession.data,
+            ...intelligentResponse.sessionData,
+          };
         }
-
-        // Log interaction
-        db.data.logs.push({
-          sender,
-          message: messageText,
-          response: response.message,
-          intent: detectedIntent.intent,
-          confidence: detectedIntent.confidence,
-          method: "ai_intent_handler",
-          sessionState: userSession.state,
-          timestamp: new Date().toISOString(),
-        });
+        if (intelligentResponse.requiresHumanTransfer) {
+          // Handle human transfer from intelligent intent
+          await transferToHumanAssistance(
+            sender,
+            userSession,
+            {
+              needsHuman: true,
+              confidence: 0.9,
+              reason: intelligentResponse.intent,
+              urgency: "medium",
+              category: "complex_query",
+              context: "Intelligent intent handler requested human transfer",
+            },
+            messageText
+          );
+        }
         await db.write();
-        return;
+        return; // Crucial: Stop processing if intelligent intent handled it
       }
     }
 
     // --- CONTEXTUAL FALLBACK / AI GENERATED RESPONSE ---
-    // If no specific intent or state handler took action, generate a contextual response.
     console.log("🤖 Generando respuesta contextual con OpenAI...");
     const contextualResponse = await generateContextualResponse(
       messageText,
       userSession,
       detectedIntent
     );
-
     if (contextualResponse) {
       await sock.sendMessage(sender, { text: contextualResponse });
-
-      // Try to extract state changes from AI response
       const stateUpdate = await extractStateFromAIResponse(
         contextualResponse,
         detectedIntent,
@@ -1793,25 +1793,18 @@ async function handleUserMessage(sender, messageText) {
         userSession.data.loopCount = 0;
       }
       if (stateUpdate.sessionData) {
-        userSession.data = { ...userSession.data, ...stateUpdate.sessionData };
+        userSession.data = {
+          ...userSession.data,
+          ...stateUpdate.sessionData,
+        };
       }
-
-      db.data.logs.push({
-        sender,
-        message: messageText,
-        response: contextualResponse,
-        intent: detectedIntent.intent,
-        confidence: detectedIntent.confidence,
-        method: "ai_contextual",
-        sessionState: userSession.state,
-        timestamp: new Date().toISOString(),
-      });
       await db.write();
-    } else {
-      // Final fallback to original logic if AI also fails to generate a coherent response
-      console.log("🔄 Usando lógica de fallback original");
-      await handleFallbackResponse(sender, messageText, userSession);
+      return; // Crucial: Stop processing if contextual AI handled it
     }
+
+    // --- FINAL FALLBACK ---
+    console.log("🔄 Usando lógica de fallback original");
+    await handleFallbackResponse(sender, messageText, userSession);
   } catch (error) {
     console.error("❌ Error en handleUser Message:", error);
     try {
@@ -1824,7 +1817,6 @@ async function handleUserMessage(sender, messageText) {
   }
 }
 
-
 async function handleIntelligentIntent(
   detectedIntent,
   userSession,
@@ -1834,19 +1826,24 @@ async function handleIntelligentIntent(
 
   try {
     // If AI detected a specific transfer type, prioritize it and set session data
-    if (detectedIntent.auto_transfer_type && detectedIntent.auto_transfer_type.detected) {
-        userSession.data.deliveryType = detectedIntent.auto_transfer_type.type;
-        userSession.data.physicalDelivery = (detectedIntent.auto_transfer_type.type === "physical_delivery");
-        console.log(`handleIntelligentIntent: AI auto-detected transfer type: ${userSession.data.deliveryType}, physicalDelivery: ${userSession.data.physicalDelivery}`);
+    if (
+      detectedIntent.auto_transfer_type &&
+      detectedIntent.auto_transfer_type.detected
+    ) {
+      userSession.data.deliveryType = detectedIntent.auto_transfer_type.type;
+      userSession.data.physicalDelivery =
+        detectedIntent.auto_transfer_type.type === "physical_delivery";
+      console.log(
+        `handleIntelligentIntent: AI auto-detected transfer type: ${userSession.data.deliveryType}, physicalDelivery: ${userSession.data.physicalDelivery}`
+      );
     }
-
 
     switch (intent) {
       case "send_money":
         // If AI detects "send_money", and no specific auto_transfer_type was set, default to bank_transfer
         if (!userSession.data.deliveryType) {
-            userSession.data.physicalDelivery = false;
-            userSession.data.deliveryType = "bank_transfer";
+          userSession.data.physicalDelivery = false;
+          userSession.data.deliveryType = "bank_transfer";
         }
         return await handleAISendMoney(entities, userSession, originalMessage);
 
@@ -1924,6 +1921,14 @@ async function handleIntelligentIntent(
           requiresHumanTransfer: true,
         };
 
+      case "reset_session":
+        resetUserSession(userSession.sender); // Assuming sender is available in userSession or passed
+        return {
+          message: "🔄 Tu sesión ha sido reiniciada. ¿En qué puedo ayudarte hoy?",
+          intent: "session_reset",
+          newState: SESSION_STATES.INITIAL,
+        };
+
       case "unknown":
         // If AI is unsure, return null to let contextual response or fallback handle it
         return null;
@@ -1953,28 +1958,51 @@ async function handleAISendMoney(entities, userSession, originalMessage) {
 
   // If the AI detected a specific transfer type, prioritize it
   if (entities.transfer_type && entities.transfer_type !== "unknown") {
-      userSession.data.deliveryType = entities.transfer_type;
-      if (entities.transfer_type === "physical_delivery") {
-          userSession.data.physicalDelivery = true;
-      }
+    userSession.data.deliveryType = entities.transfer_type;
+    if (entities.transfer_type === "physical_delivery") {
+      userSession.data.physicalDelivery = true;
+    }
   } else {
-      // Fallback to keyword detection if AI didn't explicitly set transfer_type
-      const text = originalMessage.toLowerCase();
-      const physicalKeywords = ["cash", "efectivo", "physical dollars", "dólares físicos", "delivery", "entrega física", "physical", "físico", "en persona", "cash delivery", "entregar efectivo", "dollars at home", "dólares a domicilio", "en mano", "dollars in hand"];
-      const cashDepositKeywords = ["depósito", "deposit", "depositar", "efectivo", "cash deposit", "deposito en efectivo", "depositar efectivo"];
+    // Fallback to keyword detection if AI didn't explicitly set transfer_type
+    const text = originalMessage.toLowerCase();
+    const physicalKeywords = [
+      "cash",
+      "efectivo",
+      "physical dollars",
+      "dólares físicos",
+      "delivery",
+      "entrega física",
+      "physical",
+      "físico",
+      "en persona",
+      "cash delivery",
+      "entregar efectivo",
+      "dollars at home",
+      "dólares a domicilio",
+      "en mano",
+      "dollars in hand",
+    ];
+    const cashDepositKeywords = [
+      "depósito",
+      "deposit",
+      "depositar",
+      "efectivo",
+      "cash deposit",
+      "deposito en efectivo",
+      "depositar efectivo",
+    ];
 
-      if (physicalKeywords.some(keyword => text.includes(keyword))) {
-          userSession.data.deliveryType = "physical_delivery";
-          userSession.data.physicalDelivery = true;
-      } else if (cashDepositKeywords.some(keyword => text.includes(keyword))) {
-          userSession.data.deliveryType = "cash_deposit";
-          userSession.data.physicalDelivery = false; // Cash deposit is not physical delivery of dollars
-      } else {
-          userSession.data.deliveryType = "bank_transfer"; // Default
-          userSession.data.physicalDelivery = false;
-      }
+    if (physicalKeywords.some((keyword) => text.includes(keyword))) {
+      userSession.data.deliveryType = "physical_delivery";
+      userSession.data.physicalDelivery = true;
+    } else if (cashDepositKeywords.some((keyword) => text.includes(keyword))) {
+      userSession.data.deliveryType = "cash_deposit";
+      userSession.data.physicalDelivery = false; // Cash deposit is not physical delivery of dollars
+    } else {
+      userSession.data.deliveryType = "bank_transfer"; // Default
+      userSession.data.physicalDelivery = false;
+    }
   }
-
 
   // If we have both amount and country with good confidence
   if (
@@ -2033,7 +2061,7 @@ async function handleAISendMoney(entities, userSession, originalMessage) {
         rateInfo: rateInfo,
         // Ensure deliveryType and physicalDelivery are carried over
         deliveryType: userSession.data.deliveryType,
-        physicalDelivery: userSession.data.physicalDelivery
+        physicalDelivery: userSession.data.physicalDelivery,
       },
     };
   }
@@ -2056,7 +2084,7 @@ async function handleAISendMoney(entities, userSession, originalMessage) {
           country: countryInfo.country,
           suggestedAmount: amountInfo.amount,
           deliveryType: userSession.data.deliveryType,
-          physicalDelivery: userSession.data.physicalDelivery
+          physicalDelivery: userSession.data.physicalDelivery,
         },
       };
     } else {
@@ -2066,10 +2094,10 @@ async function handleAISendMoney(entities, userSession, originalMessage) {
         )} 🌎\n\n💰 ¿Cuál es el monto que deseas enviar? Por favor especifica la moneda (ej: $500 USD, 10000 pesos, etc.)`,
         intent: "country_detected_need_amount",
         newState: SESSION_STATES.AWAITING_AMOUNT,
-        sessionData: { 
-            country: countryInfo.country,
-            deliveryType: userSession.data.deliveryType,
-            physicalDelivery: userSession.data.physicalDelivery
+        sessionData: {
+          country: countryInfo.country,
+          deliveryType: userSession.data.deliveryType,
+          physicalDelivery: userSession.data.physicalDelivery,
         },
       };
     }
@@ -2087,7 +2115,7 @@ async function handleAISendMoney(entities, userSession, originalMessage) {
         amount: amountInfo.amount,
         currency: amountInfo.currency,
         deliveryType: userSession.data.deliveryType,
-        physicalDelivery: userSession.data.physicalDelivery
+        physicalDelivery: userSession.data.physicalDelivery,
       },
     };
   }
@@ -2099,14 +2127,11 @@ async function handleAISendMoney(entities, userSession, originalMessage) {
     intent: "send_money_generic",
     newState: SESSION_STATES.AWAITING_COUNTRY,
     sessionData: {
-        deliveryType: userSession.data.deliveryType, // Should be bank_transfer by default from detectIntentWithOpenAI
-        physicalDelivery: userSession.data.physicalDelivery // Should be false by default
-    }
+      deliveryType: userSession.data.deliveryType, // Should be bank_transfer by default from detectIntentWithOpenAI
+      physicalDelivery: userSession.data.physicalDelivery, // Should be false by default
+    },
   };
 }
-
-
-
 
 // AI-powered rate check handler
 async function handleAIRateCheck(entities, userSession, originalMessage) {
@@ -2174,69 +2199,6 @@ async function handleAIRateCheck(entities, userSession, originalMessage) {
   };
 }
 
-// AI-powered account confirmation handler
-// function handleAIAccountConfirmation(messageText, userSession) {
-//   const text = messageText.toLowerCase().trim();
-
-//   // Enhanced yes/no detection
-//   const yesPatterns = [
-//     "sí",
-//     "si",
-//     "yes",
-//     "claro",
-//     "correcto",
-//     "exacto",
-//     "afirmativo",
-//     "por supuesto",
-//     "obvio",
-//     "desde luego",
-//     "soy el titular", // Added to handle "I'm the owner"
-//     "soy la titular",
-//     "soy el dueño",
-//     "soy la dueña",
-//     "soy el propietario",
-//     "soy la propietaria",
-//   ];
-//   const noPatterns = [
-//     "no",
-//     "nope",
-//     "negativo",
-//     "incorrecto",
-//     "falso",
-//     "para nada",
-//   ];
-
-//   const isYes = yesPatterns.some((pattern) => text.includes(pattern));
-//   const isNo = noPatterns.some((pattern) => text.includes(pattern));
-
-//   if (isYes) {
-//     return {
-//       message:
-//         "¡Perfecto! 🙌 Confirmado que eres el titular de la cuenta.\n\n📝 Ahora, ¿cómo prefieres realizar el pago?\n\n1️⃣ **Transferencia bancaria** (Bolívares)\n2️⃣ **Depósito en efectivo** (Bolívares)\n3️⃣ **Entrega física** (Dólares USD - Comisión 10%)\n\nResponde con el número de tu opción preferida.",
-//       intent: "account_confirmed",
-//       newState: SESSION_STATES.AWAITING_TRANSFER_TYPE,
-//     };
-//   } else if (isNo) {
-//     return {
-//       message:
-//         "⚠️ Por razones de seguridad, solo aceptamos pagos desde cuentas a nombre del cliente que nos contacta.\n\n✅ Es indispensable que seas el titular de la cuenta o que el titular se comunique directamente con nosotros.\n\n¿Tienes una cuenta personal desde la cual puedas hacer la transferencia?",
-//       intent: "account_not_confirmed",
-//       newState: SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION,
-//     };
-//   }
-
-//   // If the response is not a clear yes/no, prompt for clarification
-//   return {
-//     message:
-//       "No estoy seguro de tu respuesta. Por favor, ¿podrías confirmar si eres el titular de la cuenta con un 'Sí' o un 'No'?",
-//     intent: "account_confirmation_unclear",
-//     newState: SESSION_STATES.AWAITING_ACCOUNT_CONFIRMATION,
-//   };
-// }
-
-// AI-powered beneficiary info handler
-// Inside MultipleFiles/bot.js
-
 async function handleAIBeneficiaryInfo(messageText, userSession) {
   try {
     const isPhysicalDelivery = userSession.data.physicalDelivery;
@@ -2261,7 +2223,6 @@ async function handleAIBeneficiaryInfo(messageText, userSession) {
 
 Message: "${messageText}"`;
     } else {
-      // Original prompt for bank transfers
       extractionPrompt = `Extract beneficiary information from this message and respond with JSON:
 {
   "hasName": boolean,
@@ -2280,7 +2241,6 @@ Message: "${messageText}"`;
 
 Message: "${messageText}"`;
     }
-
 
     const completion = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
@@ -2304,64 +2264,67 @@ Message: "${messageText}"`;
 
       if (hasReceipt) {
         // This path is for when receipt was sent BEFORE beneficiary info
-        // This might be less common, but handles the state.
         if (isPhysicalDelivery) {
-            const trackingNumber = schedulePhysicalDelivery(userSession, extraction.extractedInfo);
-            return {
-                message: `✅ ¡Perfecto! Comprobante verificado e información del beneficiario completa para entrega física.\n\n🚚 **Entrega Física Programada:**\n📋 Número de seguimiento: **${trackingNumber}**\n⏱️ Tiempo estimado: 24-48 horas\n\n📱 **Próximos pasos:**\n1️⃣ Validaremos tu pago (15-30 min)\n2️⃣ Coordinaremos con el repartidor\n3️⃣ Te enviaremos datos de contacto\n4️⃣ Entrega de dólares físicos\n\n🔔 Te mantendremos informado del progreso.`,
-                intent: "physical_delivery_scheduled",
-                newState: SESSION_STATES.DELIVERY_SCHEDULED, // New state for physical delivery scheduled
-                sessionData: { processComplete: true, deliveryScheduled: true, trackingNumber: trackingNumber },
-            };
+          const trackingNumber = schedulePhysicalDelivery(
+            userSession,
+            extraction.extractedInfo
+          );
+          return {
+            message: `✅ ¡Perfecto, ${userSession.data.userName}! Comprobante verificado e información del beneficiario completa para entrega física.\n\n🚚 **Entrega Física Programada:**\n📋 Número de seguimiento: **${trackingNumber}**\n⏱️ Tiempo estimado: 24-48 horas\n\n📱 **Próximos pasos:**\n1️⃣ Validaremos tu pago (15-30 min)\n2️⃣ Coordinaremos con el repartidor\n3️⃣ Te enviaremos datos de contacto\n4️⃣ Entrega de dólares físicos\n\n🔔 Te mantendremos informado del progreso.`,
+            intent: "physical_delivery_scheduled",
+            newState: SESSION_STATES.DELIVERY_SCHEDULED, // New state for physical delivery scheduled
+            sessionData: {
+              processComplete: true,
+              deliveryScheduled: true,
+              trackingNumber: trackingNumber,
+            },
+          };
         } else {
-            return {
-                message:
-                    "✅ Perfecto, he recibido toda la información del beneficiario y el comprobante firmado.\n\n📋 Procederemos a validar tu pago y comenzar el proceso de transferencia.\n\n⏱️ Te notificaremos cuando esté listo. Normalmente toma entre 15-30 minutos.\n\n¿Hay algo más en lo que pueda ayudarte?",
-                intent: "beneficiary_complete_with_receipt",
-                newState: SESSION_STATES.INITIAL, // Reset to initial after completion
-                sessionData: { processComplete: true },
-            };
+          return {
+            message: `✅ ¡Perfecto, ${userSession.data.userName}! He recibido toda la información del beneficiario y el comprobante firmado.\n\n📋 Procederemos a validar tu pago y comenzar el proceso de transferencia.\n\n⏱️ Te notificaremos cuando esté listo. Normalmente toma entre 15-30 minutos.\n\n¿Hay algo más en lo que pueda ayudarte?`,
+            intent: "beneficiary_complete_with_receipt",
+            newState: SESSION_STATES.INITIAL, // Reset to initial after completion
+            sessionData: { processComplete: true },
+          };
         }
       } else {
         // This is the more common path: beneficiary info is complete, now ask for receipt
         if (isPhysicalDelivery) {
-            return {
-                message:
-                    "✅ Excelente, información del beneficiario para entrega física recibida correctamente.\n\nAhora necesito que envíes el comprobante de pago firmado con:\n✍️ Tu nombre completo + últimos 4 dígitos de tu WhatsApp\n\n📸 Por favor envía la foto del comprobante firmado.",
-                intent: "physical_beneficiary_complete_need_receipt",
-                newState: SESSION_STATES.AWAITING_RECEIPT, // New state for awaiting receipt
-            };
+          return {
+            message: `✅ Excelente, ${userSession.data.userName}! Información del beneficiario para entrega física recibida correctamente.\n\nAhora necesito que envíes el comprobante de pago firmado con:\n✍️ Tu nombre completo + últimos 4 dígitos de tu WhatsApp\n\n📸 Por favor envía la foto del comprobante firmado.`,
+            intent: "physical_beneficiary_complete_need_receipt",
+            newState: SESSION_STATES.AWAITING_RECEIPT, // New state for awaiting receipt
+          };
         } else {
-            return {
-                message:
-                    "✅ Excelente, información del beneficiario recibida correctamente.\n\nAhora necesito que envíes el comprobante de pago firmado con:\n✍️ Tu nombre completo + últimos 4 dígitos de tu WhatsApp\n\n📸 Por favor envía la foto del comprobante firmado.",
-                intent: "beneficiary_complete_need_receipt",
-                newState: SESSION_STATES.AWAITING_RECEIPT, // New state for awaiting receipt
-            };
+          return {
+            message: `✅ Excelente, ${userSession.data.userName}! Información del beneficiario recibida correctamente.\n\nAhora necesito que envíes el comprobante de pago firmado con:\n✍️ Tu nombre completo + últimos 4 dígitos de tu WhatsApp\n\n📸 Por favor envía la foto del comprobante firmado.`,
+            intent: "beneficiary_complete_need_receipt",
+            newState: SESSION_STATES.AWAITING_RECEIPT, // New state for awaiting receipt
+          };
         }
       }
     } else {
       // Incomplete data, prompt user for missing fields
-      let responseMessage = "📋 He recibido tu información, pero necesito que completes algunos datos:\n\n";
+      let responseMessage = `📋 He recibido tu información, pero necesito que completes algunos datos:\n\n`;
 
       extraction.missingFields.forEach((field, index) => {
         responseMessage += `${index + 1}️⃣ **${field.charAt(0).toUpperCase() + field.slice(1)}**\n`;
       });
 
       if (isPhysicalDelivery) {
-        responseMessage += "\n📌 **Formato requerido para Entrega Física:**\n";
-        responseMessage += "**Nombre y Apellido:** [Nombre completo del beneficiario]\n";
-        responseMessage += "**Cédula:** [Número de cédula sin puntos ni guiones]\n";
-        responseMessage += "**Teléfono de contacto:** [Número de contacto en Venezuela]\n";
-        responseMessage += "**Dirección completa de entrega:** [Dirección completa para entrega]\n\n";
+        responseMessage += `\n📌 **Formato requerido para Entrega Física:**\n`;
+        responseMessage += `**Nombre y Apellido:** [Nombre completo del beneficiario]\n`;
+        responseMessage += `**Cédula:** [Número de cédula sin puntos ni guiones]\n`;
+        responseMessage += `**Teléfono de contacto:** [Número de contacto en Venezuela]\n`;
+        responseMessage += `**Dirección completa de entrega:** [Dirección completa para entrega]\n\n`;
       } else {
-        responseMessage += "\n📌 **Formato requerido para Transferencia Bancaria:**\n";
-        responseMessage += "**Nombre y Apellido:** [Nombre completo del beneficiario]\n";
-        responseMessage += "**Cédula:** [Número de cédula sin puntos ni guiones]\n";
-        responseMessage += "**Número de Cuenta:** [20 dígitos de la cuenta bancaria]\n";
-        responseMessage += "**Monto a Entregar:** [Cantidad en bolívares]\n\n";
+        responseMessage += `\n📌 **Formato requerido para Transferencia Bancaria:**\n`;
+        responseMessage += `**Nombre y Apellido:** [Nombre completo del beneficiario]\n`;
+        responseMessage += `**Cédula:** [Número de cédula sin puntos ni guiones]\n`;
+        responseMessage += `**Número de Cuenta:** [20 dígitos de la cuenta bancaria]\n`;
+        responseMessage += `**Monto a Entregar:** [Cantidad en bolívares]\n\n`;
       }
-      responseMessage += "Por favor envía la información completa.";
+      responseMessage += `Por favor envía la información completa.`;
 
       return {
         message: responseMessage,
@@ -2372,7 +2335,6 @@ Message: "${messageText}"`;
     }
   } catch (error) {
     console.error("❌ Error extracting beneficiary info:", error);
-    // Fallback to human assistance if AI extraction fails
     return {
       message: "Disculpa, no pude procesar la información del beneficiario. Un asesor te ayudará con esto.",
       intent: "beneficiary_extraction_error",
@@ -2382,7 +2344,6 @@ Message: "${messageText}"`;
 }
 
 
-// AI-powered receipt submission handler
 function handleAIReceiptSubmission(messageText, userSession) {
   const text = messageText.toLowerCase();
   const isPhysicalDelivery =
@@ -2433,29 +2394,33 @@ function handleAIReceiptSubmission(messageText, userSession) {
       message:
         "📋 Gracias por el comprobante. 🙌 Solo necesito que lo firmes con tu nombre completo y los últimos 4 dígitos del número de WhatsApp desde el que me escribes.\n\n✍️ **Ejemplo:** Juan Pérez 1234\n\nEsto garantiza mayor seguridad. Por favor envía el comprobante firmado.",
       intent: "receipt_unsigned",
-      newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
+      newState: SESSION_STATES.AWAITING_RECEIPT, // Stay in awaiting receipt
     };
   }
 
   // Receipt is properly signed
-  const hasBeneficiary =
-    userSession.data && userSession.data.beneficiaryComplete;
+  console.log("✅ Comprobante verificado correctamente (texto)");
+
+  // Update session to indicate receipt received and verified
+  userSession.data.receiptReceived = true;
+  userSession.data.receiptVerified = true;
+  userSession.lastActivity = new Date().toISOString();
+
+  const hasBeneficiary = userSession.data.beneficiaryComplete;
 
   if (hasBeneficiary) {
     if (isPhysicalDelivery) {
       // Create tracking number for physical delivery
       const trackingNumber = schedulePhysicalDelivery(
         userSession,
-        userSession.data.beneficiaryInfo
+        userSession.data.beneficiaryDetails // Use beneficiaryDetails from session
       );
 
       return {
         message: `✅ ¡Perfecto! Comprobante verificado e información del beneficiario completa.\n\n🚚 **Entrega Física Programada:**\n📋 Número de seguimiento: **${trackingNumber}**\n⏱️ Tiempo estimado: 24-48 horas\n\n📱 **Próximos pasos:**\n1️⃣ Validaremos tu pago (15-30 min)\n2️⃣ Coordinaremos con el repartidor\n3️⃣ Te enviaremos datos de contacto\n4️⃣ Entrega de dólares físicos\n\n🔔 Te mantendremos informado del progreso.`,
         intent: "physical_delivery_scheduled",
-        newState: SESSION_STATES.INITIAL,
+        newState: SESSION_STATES.DELIVERY_SCHEDULED, // New state for physical delivery scheduled
         sessionData: {
-          receiptReceived: true,
-          receiptSigned: true,
           processComplete: true,
           deliveryScheduled: true,
           trackingNumber: trackingNumber,
@@ -2467,11 +2432,7 @@ function handleAIReceiptSubmission(messageText, userSession) {
           "✅ Perfecto, comprobante firmado recibido y la información del beneficiario está completa.\n\n📋 Procederemos a validar tu pago y comenzar el proceso de transferencia.\n\n⏱️ Te notificaremos cuando esté listo. Normalmente toma entre 15-30 minutos.\n\n¿Hay algo más en lo que pueda ayudarte?",
         intent: "receipt_and_beneficiary_complete",
         newState: SESSION_STATES.INITIAL,
-        sessionData: {
-          receiptReceived: true,
-          receiptSigned: true,
-          processComplete: true,
-        },
+        sessionData: { processComplete: true },
       };
     }
   } else {
@@ -2496,8 +2457,6 @@ function handleAIReceiptSubmission(messageText, userSession) {
 }
 
 // AI-powered cash delivery handler
-// Inside MultipleFiles/bot.js
-
 async function handleAICashDelivery(entities, userSession, originalMessage) {
   const physicalAnalysis = await detectPhysicalDeliveryWithAI(
     originalMessage,
@@ -2570,8 +2529,6 @@ async function handleAICashDelivery(entities, userSession, originalMessage) {
   };
 }
 
-
-
 // Extract state changes from AI responses
 async function extractStateFromAIResponse(
   aiResponse,
@@ -2597,7 +2554,7 @@ async function extractStateFromAIResponse(
   }
 
   if (response.includes("comprobante") && response.includes("firmado")) {
-    return { newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO };
+    return { newState: SESSION_STATES.AWAITING_RECEIPT }; // Corrected state
   }
 
   return {};
@@ -2666,17 +2623,17 @@ function convertUSDToLocalCurrency(usdAmount, country) {
   return usdAmount * (conversionRates[country] || 1);
 }
 
-// function getLocalCurrencyName(country) {
-//   const currencyNames = {
-//     dominican: 'pesos dominicanos',
-//     peru: 'soles peruanos',
-//     ecuador: 'dólares americanos',
-//     colombia: 'pesos colombianos',
-//     chile: 'pesos chilenos'
-//   };
+function getLocalCurrencyName(country) {
+  const currencyNames = {
+    dominican: "pesos dominicanos",
+    peru: "soles peruanos",
+    ecuador: "dólares americanos",
+    colombia: "pesos colombianos",
+    chile: "pesos chilenos",
+  };
 
-//   return currencyNames[country] || 'moneda local';
-// }
+  return currencyNames[country] || "moneda local";
+}
 
 function isNetAmountIntent(text) {
   const lower = text.toLowerCase();
@@ -2965,7 +2922,11 @@ function handleTransferTypeOriginal(messageText, userSession) {
   const lower = messageText.toLowerCase().trim();
 
   // Check for natural language keywords first
-  if (lower.includes("transferencia") || lower.includes("bank transfer") || lower === "1") {
+  if (
+    lower.includes("transferencia") ||
+    lower.includes("bank transfer") ||
+    lower === "1"
+  ) {
     // Proceed with bank transfer instructions
     userSession.data.deliveryType = "bank_transfer"; // Ensure session data is set
     userSession.data.physicalDelivery = false;
@@ -2976,7 +2937,13 @@ function handleTransferTypeOriginal(messageText, userSession) {
       newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
       sessionData: { transferType: "bank_transfer" },
     };
-  } else if (lower.includes("depósito") || lower.includes("deposit") || lower.includes("efectivo") || lower.includes("cash deposit") || lower === "2") {
+  } else if (
+    lower.includes("depósito") ||
+    lower.includes("deposit") ||
+    lower.includes("efectivo") ||
+    lower.includes("cash deposit") ||
+    lower === "2"
+  ) {
     // Proceed with cash deposit instructions
     userSession.data.deliveryType = "cash_deposit"; // Ensure session data is set
     userSession.data.physicalDelivery = false;
@@ -2987,7 +2954,13 @@ function handleTransferTypeOriginal(messageText, userSession) {
       newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
       sessionData: { transferType: "cash_deposit" },
     };
-  } else if (lower.includes("físico") || lower.includes("dólares físicos") || lower.includes("physical delivery") || lower.includes("cash delivery") || lower === "3") {
+  } else if (
+    lower.includes("físico") ||
+    lower.includes("dólares físicos") ||
+    lower.includes("physical delivery") ||
+    lower.includes("cash delivery") ||
+    lower === "3"
+  ) {
     // If the user explicitly selects "3" or uses keywords for physical delivery
     userSession.data.physicalDelivery = true;
     userSession.data.deliveryType = "physical_dollars";
@@ -3002,7 +2975,7 @@ function handleTransferTypeOriginal(messageText, userSession) {
         wantsPhysicalDelivery: true,
         confidence: 1.0,
         deliveryKeywords: ["físico"],
-        context: "User selected physical delivery option"
+        context: "User selected physical delivery option",
       });
     }
 
@@ -3014,8 +2987,8 @@ function handleTransferTypeOriginal(messageText, userSession) {
       newState: SESSION_STATES.AWAITING_AMOUNT, // Or AWAITING_COUNTRY, depending on what's missing
       sessionData: {
         physicalDelivery: true,
-        deliveryType: "physical_dollars"
-      }
+        deliveryType: "physical_dollars",
+      },
     };
   } else {
     // If no valid option or keyword is detected, re-prompt
@@ -3027,8 +3000,6 @@ function handleTransferTypeOriginal(messageText, userSession) {
     };
   }
 }
-
-
 
 // Add new function for physical delivery beneficiary info (continued)
 function handlePhysicalDeliveryBeneficiaryInfo(messageText, userSession) {
@@ -3066,7 +3037,7 @@ function handlePhysicalDeliveryBeneficiaryInfo(messageText, userSession) {
         message:
           "✅ Información del beneficiario recibida.\n\n📸 Ahora envía el comprobante de pago firmado con:\n✍️ Tu nombre completo + últimos 4 dígitos de tu WhatsApp\n\nEjemplo: Juan Pérez 1234",
         intent: "physical_delivery_need_receipt",
-        newState: SESSION_STATES.AWAITING_BENEFICIARY_INFO,
+        newState: SESSION_STATES.AWAITING_RECEIPT, // Corrected state
         sessionData: {
           beneficiaryInfo: messageText,
           beneficiaryComplete: true,
@@ -3218,43 +3189,7 @@ function handleKYCRequiredOriginal(messageText, userSession) {
   }
 }
 
-// ==================== HELPER FUNCTIONS ====================
 
-// function convertUSDToLocalCurrency(usdAmount, country) {
-//   const conversionRates = {
-//     dominican: 58.5, // Approximate USD to DOP
-//     peru: 3.7,       // Approximate USD to PEN
-//     colombia: 4200,  // Approximate USD to COP
-//     chile: 900       // Approximate USD to CLP
-//   };
-
-//   return usdAmount * (conversionRates[country] || 1);
-// }
-
-function getLocalCurrencyName(country) {
-  const currencyNames = {
-    dominican: "pesos dominicanos",
-    peru: "soles peruanos",
-    ecuador: "dólares americanos",
-    colombia: "pesos colombianos",
-    chile: "pesos chilenos",
-  };
-
-  return currencyNames[country] || "moneda local";
-}
-
-// function isNetAmountIntent(text) {
-//   const lower = text.toLowerCase();
-//   return (
-//     lower.includes("reciba") ||
-//     lower.includes("receive") ||
-//     lower.includes("exacto") ||
-//     lower.includes("exactly") ||
-//     lower.includes("en mano") ||
-//     lower.includes("que le llegue") ||
-//     lower.includes("que reciba")
-//   );
-// }
 
 // Dummy function for rate calculation request in original logic
 function isRateCalculationRequest(text) {
@@ -3602,7 +3537,7 @@ function schedulePhysicalDelivery(userSession, beneficiaryInfo) {
     scheduledTime: scheduledTime.toISOString(),
     beneficiaryInfo: beneficiaryInfo,
     createdAt: new Date().toISOString(),
-    estimatedDelivery: "24-48 horas",
+    estimatedDelivery: "24-48 hours",
   };
 
   return trackingNumber;
